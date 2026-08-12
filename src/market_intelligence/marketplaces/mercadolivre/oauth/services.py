@@ -92,36 +92,85 @@ class OAuthRefreshService:
 
     async def refresh(self, *, account_id: str, correlation_id: str | None = None) -> int:
         self.settings.validate_for_r11()
-        correlation = correlation_id or uuid4().hex
-        current = await self.credentials.get(marketplace=self.settings.marketplace, account_id=account_id)
-        if current is None:
-            raise LookupError("credential_missing")
         if not self.settings.synthetic_refresh_enabled:
             raise PermissionError("synthetic_refresh_blocked")
+        correlation = correlation_id or uuid4().hex
+        now = self.clock()
+        claim_id = uuid4().hex
+        claim = await self.credentials.claim_refresh(
+            marketplace=self.settings.marketplace,
+            account_id=account_id,
+            claim_id=claim_id,
+            now=now,
+            claim_ttl_seconds=self.settings.refresh_claim_ttl_seconds,
+            dedup_seconds=self.settings.refresh_dedup_seconds,
+        )
+        if claim is None:
+            current = await self.credentials.get(
+                marketplace=self.settings.marketplace, account_id=account_id
+            )
+            if current is None:
+                raise LookupError("credential_missing")
+            await self.audit.append(
+                correlation_id=correlation,
+                marketplace=self.settings.marketplace,
+                action="synthetic_refresh",
+                outcome="rejected",
+                reason="refresh_conflict_or_deduplicated",
+                metadata={"account_id": account_id, "credential_version": current.version},
+            )
+            raise RuntimeError("refresh_conflict")
+
+        current = claim.credential
         try:
-            refresh_token = self.crypto.open(current.refresh_envelope,
-                context=f"oauth-refresh:{self.settings.marketplace}:{account_id}")
+            refresh_token = self.crypto.open(
+                current.refresh_envelope,
+                context=f"oauth-refresh:{self.settings.marketplace}:{account_id}",
+            )
             tokens = await self.client.refresh(refresh_token=refresh_token)
-            next_version = await self.credentials.rotate(
-                marketplace=self.settings.marketplace, account_id=account_id,
+            next_version = await self.credentials.rotate_claimed(
+                marketplace=self.settings.marketplace,
+                account_id=account_id,
+                claim_id=claim.claim_id,
                 expected_version=current.version,
-                access_envelope=self.crypto.seal(tokens.access_token,
-                    context=f"oauth-access:{self.settings.marketplace}:{account_id}"),
-                refresh_envelope=self.crypto.seal(tokens.refresh_token,
-                    context=f"oauth-refresh:{self.settings.marketplace}:{account_id}"),
-                expires_at=tokens.expires_at, scopes=tokens.scopes, key_version=self.crypto.key_version,
+                access_envelope=self.crypto.seal(
+                    tokens.access_token,
+                    context=f"oauth-access:{self.settings.marketplace}:{account_id}",
+                ),
+                refresh_envelope=self.crypto.seal(
+                    tokens.refresh_token,
+                    context=f"oauth-refresh:{self.settings.marketplace}:{account_id}",
+                ),
+                expires_at=tokens.expires_at,
+                scopes=tokens.scopes,
+                key_version=self.crypto.key_version,
+                refreshed_at=now,
             )
             if next_version is None:
-                raise RuntimeError("refresh_conflict")
+                raise RuntimeError("refresh_claim_lost")
         except Exception as exc:
-            await self.audit.append(correlation_id=correlation, marketplace=self.settings.marketplace,
-                                    action="synthetic_refresh", outcome="failed",
-                                    reason=type(exc).__name__,
-                                    metadata={"account_id": account_id, "previous_version": current.version})
+            await self.credentials.release_refresh_claim(
+                marketplace=self.settings.marketplace,
+                account_id=account_id,
+                claim_id=claim.claim_id,
+                expected_version=current.version,
+            )
+            await self.audit.append(
+                correlation_id=correlation,
+                marketplace=self.settings.marketplace,
+                action="synthetic_refresh",
+                outcome="failed",
+                reason=type(exc).__name__,
+                metadata={"account_id": account_id, "previous_version": current.version},
+            )
             raise
-        await self.audit.append(correlation_id=correlation, marketplace=self.settings.marketplace,
-                                action="synthetic_refresh", outcome="success",
-                                metadata={"account_id": account_id, "credential_version": next_version})
+        await self.audit.append(
+            correlation_id=correlation,
+            marketplace=self.settings.marketplace,
+            action="synthetic_refresh",
+            outcome="success",
+            metadata={"account_id": account_id, "credential_version": next_version},
+        )
         return next_version
 
 
