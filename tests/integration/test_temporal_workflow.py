@@ -8,14 +8,16 @@ from uuid import uuid4
 
 import pytest
 from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import Replayer
 
 from market_intelligence.ingestion.events import build_raw_event
 from market_intelligence.intelligence.radar.detectors import KnownRuleDetector, RobustZScoreDetector
 from market_intelligence.intelligence.radar.service import RadarService
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
-from market_intelligence.workflows.temporal_engine import TemporalWorkflowEngine
-from market_intelligence.workflows.worker import build_temporal_worker
 from market_intelligence.workflows.names import WORKFLOW_INGESTION
+from market_intelligence.workflows.temporal_engine import TemporalWorkflowEngine
+from market_intelligence.workflows.temporal_workflow import MarketIntelligenceIngestionWorkflow
+from market_intelligence.workflows.worker import build_temporal_worker
 
 
 class FlakyReadOnlyAdapter:
@@ -113,6 +115,9 @@ def test_temporal_postgres_pipeline_is_durable_idempotent_and_retries_reads() ->
 
                     history = await handle.fetch_history()
                     assert history.events
+                    await Replayer(
+                        workflows=[MarketIntelligenceIngestionWorkflow]
+                    ).replay_workflow(history)
         finally:
             await database.dispose()
 
