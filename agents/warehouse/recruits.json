@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "project": "Market Intelligence IA",
+  "created_at": "2026-08-12",
+  "policy": {
+    "warehouse_is_inactive": true,
+    "auto_execution": false,
+    "promotion_requires": [
+      "source inspection",
+      "license confirmation",
+      "pinned ref",
+      "hash manifest",
+      "tests",
+      "QA independent review"
+    ],
+    "primary_runtime": "Codex local",
+    "persistent_state": "GitHub"
+  },
+  "counts": {
+    "active_internal_codex_agents": 11,
+    "warehouse_external_recruits": 19,
+    "total_specialized_resources": 30
+  },
+  "recruits": [
+    {"id":"principal-software-engineer","type":"agent-profile","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"agents/principal-software-engineer.agent.md","origin":"GitHub/global","license":"MIT","role":"Engenharia de software principal","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":"reference/adaptation-to-.codex/agents","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"system-architecture-reviewer","type":"agent-profile","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"agents/se-system-architecture-reviewer.agent.md","origin":"GitHub/global","license":"MIT","role":"Revisão independente de arquitetura","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":"reference/adaptation-to-.codex/agents","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"security-reviewer","type":"agent-profile","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"agents/se-security-reviewer.agent.md","origin":"GitHub/global","license":"MIT","role":"Revisão de segurança","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":"reference/adaptation-to-.codex/agents","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"sast-sca-security-analyzer","type":"agent-profile","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"agents/sast-sca-security-analyzer.agent.md","origin":"GitHub/global","license":"MIT","role":"SAST/SCA e cadeia de dependências","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":"reference/adaptation-to-.codex/agents","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"gitops-ci-specialist","type":"agent-profile","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"agents/se-gitops-ci-specialist.agent.md","origin":"GitHub/global","license":"MIT","role":"GitOps e CI","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":"reference/adaptation-to-.codex/agents","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"postgresql-dba","type":"agent-profile","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"agents/postgresql-dba.agent.md","origin":"GitHub/global","license":"MIT","role":"PostgreSQL e operação de banco","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":"reference/adaptation-to-.codex/agents","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"qa-subagent","type":"agent-profile","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"agents/qa-subagent.agent.md","origin":"GitHub/global","license":"MIT","role":"QA independente","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":"reference/adaptation-to-.codex/agents","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"project-documenter","type":"agent-profile","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"agents/project-documenter.agent.md","origin":"GitHub/global","license":"MIT","role":"Documentação técnica","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":"reference/adaptation-to-.codex/agents","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"acquire-codebase-knowledge","type":"agent-skill","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"skills/acquire-codebase-knowledge","origin":"GitHub/global","license":"MIT","role":"Leitura estruturada de codebase","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":".agents/skills","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"agent-governance","type":"agent-skill","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"skills/agent-governance","origin":"GitHub/global","license":"MIT","role":"Governança de agentes","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":".agents/skills","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"agent-owasp-compliance","type":"agent-skill","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"skills/agent-owasp-compliance","origin":"GitHub/global","license":"MIT","role":"OWASP para agentes","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":".agents/skills","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"agent-supply-chain","type":"agent-skill","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"skills/agent-supply-chain","origin":"GitHub/global","license":"MIT","role":"Proveniência e supply chain de agentes","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":".agents/skills","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"agentic-eval","type":"agent-skill","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"skills/agentic-eval","origin":"GitHub/global","license":"MIT","role":"Avaliação sistemática de agentes","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":".agents/skills","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"security-review","type":"agent-skill","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"skills/security-review","origin":"GitHub/global","license":"MIT","role":"Revisão de segurança orientada por evidência","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":".agents/skills","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"mcp-security-audit","type":"agent-skill","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"skills/mcp-security-audit","origin":"GitHub/global","license":"MIT","role":"Auditoria de segurança MCP","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":".agents/skills","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"pytest-coverage","type":"agent-skill","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"skills/pytest-coverage","origin":"GitHub/global","license":"MIT","role":"Cobertura e qualidade pytest","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":".agents/skills","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"bug-receipt","type":"agent-skill","source_repo":"github/awesome-copilot","source_ref":"0a6e37e4e242c944380228fa29dbd14e64ac1b63","source_path":"skills/bug-receipt","origin":"GitHub/global","license":"MIT","role":"Fechamento auditável de bugs","status":"WAREHOUSE_APPROVED_INACTIVE","activation_target":".agents/skills","requires_external_tool":false,"third_party_execution_allowed":false},
+    {"id":"open-code-review-delegate","type":"agent-skill","source_repo":"alibaba/open-code-review","source_ref":"140871d70f608ad90749d33635db6d3a96706d3a","source_path":"skills/open-code-review-delegate","origin":"Alibaba/China","license":"Apache-2.0","role":"Revisão de código híbrida","status":"WAREHOUSE_APPROVED_REQUIRES_LOCAL_TOOL_REVIEW","activation_target":".agents/skills","requires_external_tool":true,"third_party_execution_allowed":false},
+    {"id":"skill-upper","type":"agent-skill","source_repo":"alibaba/skill-up","source_ref":"bce25ec5eba6880fd1837ea909ba68579c19bbfc","source_path":"skills/skill-upper","origin":"Alibaba/China","license":"Apache-2.0","role":"Avaliar e evoluir skills com testes","status":"WAREHOUSE_APPROVED_REQUIRES_LOCAL_TOOL_REVIEW","activation_target":".agents/skills","requires_external_tool":true,"third_party_execution_allowed":false}
+  ]
+}
