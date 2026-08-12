@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 class RawEvent(BaseModel):
     source: str
     event_type: str
+    external_id: str | None = None
     resource: str | None = None
     occurred_at: datetime | None = None
     received_at: datetime
@@ -23,10 +24,11 @@ def canonical_payload_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def build_raw_event(*, source: str, event_type: str, payload: dict[str, Any], resource: str | None = None, occurred_at: datetime | None = None, received_at: datetime | None = None) -> RawEvent:
+def build_raw_event(*, source: str, event_type: str, payload: dict[str, Any], external_id: str | None = None, resource: str | None = None, occurred_at: datetime | None = None, received_at: datetime | None = None) -> RawEvent:
     return RawEvent(
         source=source,
         event_type=event_type,
+        external_id=external_id,
         resource=resource,
         occurred_at=occurred_at,
         received_at=received_at or datetime.now(UTC),
