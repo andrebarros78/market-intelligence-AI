@@ -1,0 +1,391 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-12T14:51:48Z",
+  "baseline_id": "2026-08-12-initial",
+  "release_tag": "components-baseline-2026-08-12-initial",
+  "clean_copy_definition": "GitHub source tarball generated from the exact resolved upstream commit/ref, with upstream files and legal notices preserved and no local modifications.",
+  "components": [
+    {
+      "name": "higress",
+      "repository": "higress-group/higress",
+      "purpose": "API/AI/MCP gateway and controlled connection layer",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "v2.2.3",
+      "resolved_commit": "39ec41aab6eb1d40499bed2847085696de0ebb96",
+      "release_asset": "higress-v2.2.3-source.tar.gz",
+      "sha256": "12bf492eb4c12823e1dbb64e2add90061e6a45b82e5c3714c88481c4ff7fef66",
+      "size_bytes": 34734932,
+      "license_files": [
+        "higress-group-higress-39ec41a/.github/workflows/license-checker.yaml",
+        "higress-group-higress-39ec41a/LICENSE",
+        "higress-group-higress-39ec41a/helm/core/LICENSE",
+        "higress-group-higress-39ec41a/helm/higress/LICENSE"
+      ]
+    },
+    {
+      "name": "temporal-server",
+      "repository": "temporalio/temporal",
+      "purpose": "Durable workflows, retries, recovery and orchestration",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "v1.31.2",
+      "resolved_commit": "19a774302c613da9adc4436ab14278ccdca8e0a5",
+      "release_asset": "temporal-server-v1.31.2-source.tar.gz",
+      "sha256": "3d0fcba25895bd14a054fc88de5ee38f7045edfd406131baae3eae2465ec20f4",
+      "size_bytes": 5947248,
+      "license_files": [
+        "temporalio-temporal-19a7743/LICENSE",
+        "temporalio-temporal-19a7743/common/persistence/sql/sqlplugin/sqlite/LICENSE",
+        "temporalio-temporal-19a7743/common/persistence/visibility/store/query/LICENSE",
+        "temporalio-temporal-19a7743/common/testing/protoassert/LICENSE",
+        "temporalio-temporal-19a7743/schema/sqlite/LICENSE",
+        "temporalio-temporal-19a7743/temporaltest/LICENSE"
+      ]
+    },
+    {
+      "name": "temporal-python-sdk",
+      "repository": "temporalio/sdk-python",
+      "purpose": "Python client and workers for Temporal",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "1.31.0",
+      "resolved_commit": "84b519e0ff407b049da88ac7d1711f110494ff4d",
+      "release_asset": "temporal-python-sdk-1.31.0-source.tar.gz",
+      "sha256": "864b92801e5254a1a0fb3b3150562e2c35a24b6d1b1d5ab2c873380c0b079cbb",
+      "size_bytes": 2189333,
+      "license_files": [
+        "temporalio-sdk-python-84b519e/LICENSE"
+      ]
+    },
+    {
+      "name": "fastapi",
+      "repository": "fastapi/fastapi",
+      "purpose": "HTTP API and OpenAPI backend",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "0.141.1",
+      "resolved_commit": "95f8322ee1dcda7ceace7b1c4f6c9915b36d748f",
+      "release_asset": "fastapi-0.141.1-source.tar.gz",
+      "sha256": "43ad2944f0b1ce62471062617871fc271fa04f3625fe9bedcdc1fa31128961f6",
+      "size_bytes": 17786755,
+      "license_files": [
+        "fastapi-fastapi-95f8322/LICENSE",
+        "fastapi-fastapi-95f8322/docs/en/overrides/partials/copyright.html"
+      ]
+    },
+    {
+      "name": "pydantic",
+      "repository": "pydantic/pydantic",
+      "purpose": "Versioned internal contracts and validation",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "v2.13.4",
+      "resolved_commit": "cf67d4b3193c3fe43ede18612ed62785eee11382",
+      "release_asset": "pydantic-v2.13.4-source.tar.gz",
+      "sha256": "a770d5f10b0a919ad905ff4948c6072df8dccc10fcb380523f4e9ec653e5ee6a",
+      "size_bytes": 2614156,
+      "license_files": [
+        "pydantic-pydantic-07b7371/LICENSE",
+        "pydantic-pydantic-07b7371/pydantic-core/LICENSE"
+      ]
+    },
+    {
+      "name": "httpx",
+      "repository": "encode/httpx",
+      "purpose": "Central asynchronous HTTP client",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "0.28.1",
+      "resolved_commit": "26d48e0634e6ee9cdc0533996db289ce4b430177",
+      "release_asset": "httpx-0.28.1-source.tar.gz",
+      "sha256": "fa7f2e414c4f0defca8ad29d3da66b2cd7a4b5393057ac075d47479551161de3",
+      "size_bytes": 4118070,
+      "license_files": [
+        "encode-httpx-26d48e0/LICENSE.md"
+      ]
+    },
+    {
+      "name": "authlib",
+      "repository": "authlib/authlib",
+      "purpose": "OAuth 2.0/OIDC protocol implementation",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "v1.7.2",
+      "resolved_commit": "a0b76fac3fa114d7759af2010546bfc332364b63",
+      "release_asset": "authlib-v1.7.2-source.tar.gz",
+      "sha256": "c01c52650cc283b1b059ac1bb19df9354a15a98e3708e1e45586d96bf1872c6b",
+      "size_bytes": 356633,
+      "license_files": [
+        "authlib-authlib-10bfbec/LICENSE",
+        "authlib-authlib-10bfbec/docs/community/licenses.rst"
+      ]
+    },
+    {
+      "name": "sqlalchemy",
+      "repository": "sqlalchemy/sqlalchemy",
+      "purpose": "PostgreSQL persistence layer",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "rel_2_0_52",
+      "resolved_commit": "190990768104d13e322d9c07261cb2778e7f256a",
+      "release_asset": "sqlalchemy-rel_2_0_52-source.tar.gz",
+      "sha256": "222c4a706be5fde3a9c13e4bba4263924faa305230b9a1f63b584d7fd5250e24",
+      "size_bytes": 5186079,
+      "license_files": [
+        "sqlalchemy-sqlalchemy-1909907/LICENSE",
+        "sqlalchemy-sqlalchemy-1909907/doc/build/copyright.rst"
+      ]
+    },
+    {
+      "name": "alembic",
+      "repository": "sqlalchemy/alembic",
+      "purpose": "Database schema migrations",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "rel_1_19_1",
+      "resolved_commit": "efe73dec13974f63cb438c1a2b525f2c5ac4c926",
+      "release_asset": "alembic-rel_1_19_1-source.tar.gz",
+      "sha256": "cbab10bbd48294c190ddec8b1e5d7047f4ae4626ebce649521e6bcb431d5e35a",
+      "size_bytes": 661225,
+      "license_files": [
+        "sqlalchemy-alembic-efe73de/LICENSE"
+      ]
+    },
+    {
+      "name": "cryptography",
+      "repository": "pyca/cryptography",
+      "purpose": "Authenticated encryption for secrets and tokens",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_tag_fallback",
+      "resolved_ref": "50.0.0",
+      "resolved_commit": "dcb7050b807b00392fa9fe2eac7cb362fcf355cc",
+      "release_asset": "cryptography-50.0.0-source.tar.gz",
+      "sha256": "2a7f9fdb2bb7de59fb64d29a68c71e66653a3e82844eaaf6dcc6787760396d81",
+      "size_bytes": 58532541,
+      "license_files": [
+        "pyca-cryptography-f07c254/LICENSE",
+        "pyca-cryptography-f07c254/LICENSE.APACHE",
+        "pyca-cryptography-f07c254/LICENSE.BSD",
+        "pyca-cryptography-f07c254/vectors/LICENSE",
+        "pyca-cryptography-f07c254/vectors/LICENSE.APACHE",
+        "pyca-cryptography-f07c254/vectors/LICENSE.BSD"
+      ]
+    },
+    {
+      "name": "postgresql",
+      "repository": "postgres/postgres",
+      "purpose": "Operational and historical relational database",
+      "stage": "core_now",
+      "resolution_strategy": "fixed_ref",
+      "resolved_ref": "REL_18_3",
+      "resolved_commit": "62d6c7d3df6287f1bd83199c1a746e50d31571a0",
+      "release_asset": "postgresql-REL_18_3-source.tar.gz",
+      "sha256": "55848c0e620a49615b36c2a5fe6f5b1b52dd95713124e2cb640574e05bb2ea41",
+      "size_bytes": 29809709,
+      "license_files": [
+        "postgres-postgres-62d6c7d/COPYRIGHT",
+        "postgres-postgres-62d6c7d/src/backend/regex/COPYRIGHT",
+        "postgres-postgres-62d6c7d/src/tools/copyright.pl"
+      ]
+    },
+    {
+      "name": "duckdb",
+      "repository": "duckdb/duckdb",
+      "purpose": "Embedded analytical engine for historical analysis",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "v1.5.5",
+      "resolved_commit": "d8cdaa33fda8df955cc76ef58a280f68f4cd43fa",
+      "release_asset": "duckdb-v1.5.5-source.tar.gz",
+      "sha256": "8f89af1879bdce06252d9d9186ddc05b245dd15aec6bcd4762159bd6cfb9558a",
+      "size_bytes": 101171463,
+      "license_files": [
+        "duckdb-duckdb-d8cdaa3/LICENSE",
+        "duckdb-duckdb-d8cdaa3/data/geoparquet/LICENSE",
+        "duckdb-duckdb-d8cdaa3/data/parquet-testing/LICENSE.txt",
+        "duckdb-duckdb-d8cdaa3/extension/icu/third_party/icu/LICENSE",
+        "duckdb-duckdb-d8cdaa3/extension/tpch/dbgen/LICENSE",
+        "duckdb-duckdb-d8cdaa3/src/include/duckdb/storage/compression/alp/algorithm/LICENSE",
+        "duckdb-duckdb-d8cdaa3/src/include/duckdb/storage/compression/alprd/algorithm/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/brotli/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/concurrentqueue/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/fast_float/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/fastpforlib/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/fmt/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/fsst/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/httplib/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/hyperloglog/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/jaro_winkler/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/jemalloc/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/libpg_query/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/lz4/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/mbedtls/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/miniz/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/parquet/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/pcg/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/pdqsort/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/re2/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/ska_sort/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/skiplist/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/snappy/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/snowball/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/tdigest/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/tdigest/NOTICES",
+        "duckdb-duckdb-d8cdaa3/third_party/thrift/thrift/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/utf8proc/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/vergesort/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/yyjson/LICENSE",
+        "duckdb-duckdb-d8cdaa3/third_party/zstd/LICENSE",
+        "duckdb-duckdb-d8cdaa3/tools/juliapkg/LICENSE",
+        "duckdb-duckdb-d8cdaa3/tools/shell/linenoise/LICENSE",
+        "duckdb-duckdb-d8cdaa3/tools/swift/duckdb-swift/LICENSE"
+      ]
+    },
+    {
+      "name": "polars",
+      "repository": "pola-rs/polars",
+      "purpose": "High-performance analytical transformations",
+      "stage": "core_now",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "rs-0.55.2",
+      "resolved_commit": "d7488c71ecfbc77790292ff5b365b991c08380ce",
+      "release_asset": "polars-rs-0.55.2-source.tar.gz",
+      "sha256": "e5515968d0e80c96fad6f1efdb01533f9ac737203d6b31a75ca14d3915fb31d8",
+      "size_bytes": 5312949,
+      "license_files": [
+        "pola-rs-polars-d7488c7/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-arrow/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-async/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-buffer/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-compute/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-config/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-core/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-dtype/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-error/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-expr/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-io/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-json/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-lazy/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-mem-engine/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-ooc/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-ops/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-parquet/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-plan/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-python/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-row/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-schema/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-sql/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-stream/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-testing/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-time/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars-utils/LICENSE",
+        "pola-rs-polars-d7488c7/crates/polars/LICENSE",
+        "pola-rs-polars-d7488c7/py-polars/LICENSE",
+        "pola-rs-polars-d7488c7/py-polars/runtime/polars-runtime-32/LICENSE",
+        "pola-rs-polars-d7488c7/py-polars/runtime/polars-runtime-64/LICENSE",
+        "pola-rs-polars-d7488c7/py-polars/runtime/polars-runtime-compat/LICENSE",
+        "pola-rs-polars-d7488c7/py-polars/runtime/template/LICENSE",
+        "pola-rs-polars-d7488c7/pyo3-polars/LICENSE"
+      ]
+    },
+    {
+      "name": "pyod",
+      "repository": "yzhao062/pyod",
+      "purpose": "Anomaly detection after business-rule baseline",
+      "stage": "analytics_later",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "v3.6.4",
+      "resolved_commit": "3d0169a32ab8ce68aeaf7f0bb408c281f2fb1b1e",
+      "release_asset": "pyod-v3.6.4-source.tar.gz",
+      "sha256": "06d6fccc27ce18e66d7a042cb73522f23e16768499bf4d4e25f49e7e7b8e996f",
+      "size_bytes": 9415418,
+      "license_files": [
+        "yzhao062-pyod-3d0169a/LICENSE"
+      ]
+    },
+    {
+      "name": "pgvector",
+      "repository": "pgvector/pgvector",
+      "purpose": "Vector search and semantic memory in PostgreSQL",
+      "stage": "prepared_later",
+      "resolution_strategy": "latest_stable_tag_fallback",
+      "resolved_ref": "v0.8.6",
+      "resolved_commit": "8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c",
+      "release_asset": "pgvector-v0.8.6-source.tar.gz",
+      "sha256": "25c9b78cfdaa43c66788d7490246ac24e4fe1c86f19c4b60c089b723f84a4a0d",
+      "size_bytes": 129174,
+      "license_files": [
+        "pgvector-pgvector-8ee86c9/LICENSE"
+      ]
+    },
+    {
+      "name": "statsforecast",
+      "repository": "Nixtla/statsforecast",
+      "purpose": "Time-series forecasting after sufficient history exists",
+      "stage": "analytics_later",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "v2.1.1",
+      "resolved_commit": "264166ec0ddbfd481ee8e0b71e5ca42d2c0676fc",
+      "release_asset": "statsforecast-v2.1.1-source.tar.gz",
+      "sha256": "cc65f3dd89611cfa09286a546e0a629258d710d952931eb0ef07275472787cf7",
+      "size_bytes": 54215929,
+      "license_files": [
+        "Nixtla-statsforecast-264166e/LICENSE"
+      ]
+    },
+    {
+      "name": "opentelemetry-python",
+      "repository": "open-telemetry/opentelemetry-python",
+      "purpose": "Tracing and telemetry instrumentation",
+      "stage": "observability_later",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "v1.44.0",
+      "resolved_commit": "53a5a40c9604583c501bcf13970a635f00e62df4",
+      "release_asset": "opentelemetry-python-v1.44.0-source.tar.gz",
+      "sha256": "6a7991a0bf855fbd0aaea539a282a14ff4734e076d823a018980a214a5c1848a",
+      "size_bytes": 1651401,
+      "license_files": [
+        "open-telemetry-opentelemetry-python-53a5a40/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-http-transport/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-opencensus/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-otlp-common/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-otlp-json-common/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-otlp-json-file/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-otlp-proto-common/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-otlp-proto-grpc/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-otlp-proto-http/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-otlp/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-prometheus/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-zipkin-json/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-zipkin-proto-http/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/exporter/opentelemetry-exporter-zipkin/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/opentelemetry-api/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/opentelemetry-proto-json/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/opentelemetry-proto/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/opentelemetry-sdk/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/opentelemetry-semantic-conventions/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/propagator/opentelemetry-propagator-b3/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/propagator/opentelemetry-propagator-jaeger/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/shim/opentelemetry-opencensus-shim/LICENSE",
+        "open-telemetry-opentelemetry-python-53a5a40/shim/opentelemetry-opentracing-shim/LICENSE"
+      ]
+    },
+    {
+      "name": "prometheus",
+      "repository": "prometheus/prometheus",
+      "purpose": "Operational metrics and alerting data source",
+      "stage": "observability_later",
+      "resolution_strategy": "latest_stable_release",
+      "resolved_ref": "v3.13.2",
+      "resolved_commit": "bb5dff00cf8fdfbf5c65e0531aa835fa238a43a2",
+      "release_asset": "prometheus-v3.13.2-source.tar.gz",
+      "sha256": "c4c21df5b3cc025637405a6618313300678fcf1cae68345c084ae39cc853268d",
+      "size_bytes": 5939156,
+      "license_files": [
+        "prometheus-prometheus-d08db18/LICENSE",
+        "prometheus-prometheus-d08db18/NOTICE"
+      ]
+    }
+  ]
+}
