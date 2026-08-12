@@ -57,6 +57,13 @@ class OAuthTransactionService:
                                     reason="state_invalid_expired_or_replayed",
                                     metadata={"account_id": account_id})
             raise PermissionError("oauth_callback_rejected")
+        bound_account = transaction.metadata.get("account_id")
+        if not isinstance(bound_account, str) or bound_account != account_id:
+            await self.audit.append(correlation_id=correlation, marketplace=self.settings.marketplace,
+                                    action="synthetic_callback", outcome="rejected",
+                                    reason="account_binding_mismatch",
+                                    metadata={"account_id": account_id})
+            raise PermissionError("oauth_callback_rejected")
         try:
             verifier = self.crypto.open(transaction.verifier_envelope, context=f"oauth-state:{digest}")
             tokens = await self.client.exchange(code=code, verifier=verifier)
