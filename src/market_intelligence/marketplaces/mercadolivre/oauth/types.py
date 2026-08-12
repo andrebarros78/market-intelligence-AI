@@ -68,12 +68,23 @@ class CredentialEnvelope:
     key_version: str
     version: int
     status: str
+    last_refresh_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RefreshClaim:
     claim_id: str
     credential: CredentialEnvelope
+
+
+@dataclass(frozen=True, slots=True)
+class OperationState:
+    idempotency_key: str
+    correlation_id: str
+    marketplace: str
+    operation: str
+    status: str
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
