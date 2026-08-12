@@ -21,5 +21,13 @@ Entregar o Market Intelligence IA por Loop Engineering: INSPECIONAR → REPRODUZ
 - Não editar simultaneamente o mesmo arquivo em tarefas paralelas.
 - Produzir PRs pequenos com critério de aceitação explícito; não misturar refatoração oportunista sem relação com a tarefa.
 
+## Codex local, almoxarifado e continuidade
+- Quando houver acesso à máquina do projeto, **Codex local é o executor principal de engenharia**. Use os agentes nativos de `.codex/agents/` e somente as skills externas que tiverem sido promovidas após inspeção.
+- `agents/warehouse/` é o almoxarifado de agentes e skills recrutados. Conteúdo listado ali permanece inativo por padrão; cadastro não é autorização para executar código de terceiro.
+- Uma promoção do almoxarifado exige origem e licença verificadas, referência Git fixada, manifesto SHA-256, inspeção de instruções/scripts/dependências, sandbox, testes e verificação independente.
+- Mudanças operacionais feitas na máquina devem registrar no **GitHub**: objetivo, estado inicial, decisões, arquivos, hashes, testes, falhas, correções, evidências, último ponto seguro e próximo passo.
+- Não depender somente da memória da conversa para retomada. O GitHub é a memória operacional persistente e auditável do projeto.
+- Qwen Code ou outro runtime compatível pode ser usado para benchmark/segunda opinião quando houver ganho comprovado, sem substituir silenciosamente o runtime principal.
+
 ## Critério de conclusão
 Uma tarefa só termina quando o comportamento pedido está implementado, testes/regressões passam, evidência está registrada, não há falha crítica conhecida e o próximo ponto seguro está documentado.
