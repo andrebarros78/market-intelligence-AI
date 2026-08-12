@@ -71,6 +71,12 @@ class CredentialEnvelope:
 
 
 @dataclass(frozen=True, slots=True)
+class RefreshClaim:
+    claim_id: str
+    credential: CredentialEnvelope
+
+
+@dataclass(frozen=True, slots=True)
 class ConsumedTransaction:
     state_hash: str
     verifier_envelope: bytes
