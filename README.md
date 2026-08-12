@@ -1,32 +1,34 @@
 # Market Intelligence AI
 
-Baseline técnico do projeto **Market Intelligence IA**.
+Núcleo do **Market Intelligence IA** — plataforma de inteligência de mercado orientada a evidências, inicialmente para Mercado Livre e preparada para múltiplos marketplaces.
 
-Este repositório preserva a arquitetura própria do produto e mantém componentes de terceiros em baselines limpas, rastreáveis e reproduzíveis.
+## Estado atual
 
-## Regra de componentes
+A base foi reconstruída após auditoria do antigo API ML. O projeto não foi reiniciado do zero: capacidades e evidências válidas foram preservadas como referência, enquanto a arquitetura antiga quebrada não foi reproduzida.
 
-Código de terceiros não é misturado ao código autoral do Market Intelligence IA.
+Esta versão é **read-only, sem OAuth real, sem chamadas reais ao Mercado Livre e sem escrita externa**.
 
-Cada componente aprovado possui:
+## Módulo 01
 
-- repositório oficial de origem;
-- função no projeto;
-- estágio de adoção;
-- tag/commit resolvido na captura;
-- SHA-256 do pacote preservado;
-- licença e avisos mantidos dentro do snapshot original.
+**Radar de Perdas, Exceções e Anomalias — Detector de Desconhecidos**.
 
-As cópias limpas são empacotadas a partir do código-fonte oficial e armazenadas como **assets de uma Release deste próprio repositório**. O Git normal mantém apenas os manifestos e hashes, evitando inflar permanentemente o histórico com centenas de megabytes de dependências externas.
+O Radar deve evoluir de regras conhecidas para anomalias estatísticas, temporais, multivariadas, mudanças de regime, relações anormais, contrafactuais e resíduos não explicados, sempre separando fato, inferência e hipótese.
 
-## Separação arquitetural
+## Arquitetura
 
-- `Market Intelligence AI`: núcleo de integração, dados e inteligência.
-- `andrebarros78/painel`: interface/control plane NocoBase, desacoplada do núcleo.
-- Higress: gateway entre o painel/IA e as APIs autorizadas.
+- FastAPI: API interna.
+- PostgreSQL: estado operacional e histórico.
+- Temporal: workflows duráveis.
+- DuckDB + Polars: analytics.
+- PyOD: camada de detecção de anomalias em evolução.
+- Higress: gateway para painel/IA.
+- NocoBase: painel desacoplado no repositório `andrebarros78/painel`.
 
-NocoBase não é duplicado neste repositório.
+Consulte `docs/architecture/BASE-V1.md` e `docs/radar/RADAR-FUNCOES-V1.md`.
 
-## Estado
+## Segurança
 
-Baseline inicial de componentes em preparação.
+- escrita em marketplace desabilitada por padrão;
+- segredos não devem entrar em logs, telemetria ou evidências;
+- código recuperado sensível não é importado automaticamente;
+- conexão real só será liberada depois de sandbox/digital twin aprovados.
