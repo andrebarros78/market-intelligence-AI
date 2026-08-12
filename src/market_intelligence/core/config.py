@@ -10,6 +10,11 @@ class Settings:
     read_only: bool = True
     allow_marketplace_writes: bool = False
     database_url: str | None = None
+    temporal_enabled: bool = False
+    temporal_target: str = "localhost:7233"
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "market-intelligence"
+    temporal_tls: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -18,6 +23,11 @@ class Settings:
             read_only=os.getenv("MI_READ_ONLY", "true").lower() == "true",
             allow_marketplace_writes=os.getenv("MI_ALLOW_MARKETPLACE_WRITES", "false").lower() == "true",
             database_url=os.getenv("MI_DATABASE_URL") or None,
+            temporal_enabled=os.getenv("MI_TEMPORAL_ENABLED", "false").lower() == "true",
+            temporal_target=os.getenv("MI_TEMPORAL_TARGET", "localhost:7233"),
+            temporal_namespace=os.getenv("MI_TEMPORAL_NAMESPACE", "default"),
+            temporal_task_queue=os.getenv("MI_TEMPORAL_TASK_QUEUE", "market-intelligence"),
+            temporal_tls=os.getenv("MI_TEMPORAL_TLS", "false").lower() == "true",
         )
 
     def assert_marketplace_write_allowed(self) -> None:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "market-intelligence-ai"
-version = "0.2.0"
+version = "0.3.0"
 description = "Nucleo limpo do Market Intelligence IA"
 requires-python = ">=3.12"
 dependencies = [
@@ -14,6 +14,7 @@ dependencies = [
   "SQLAlchemy==2.0.52",
   "alembic==1.19.1",
   "psycopg[binary]==3.3.4",
+  "temporalio==1.31.0",
 ]
 
 [project.optional-dependencies]
@@ -25,7 +26,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-markers = ["postgres: requires TEST_DATABASE_URL pointing to PostgreSQL"]
+markers = [
+  "postgres: requires TEST_DATABASE_URL pointing to PostgreSQL",
+  "temporal: requires the Temporal SDK test environment",
+]
 
 [tool.ruff]
 target-version = "py312"

@@ -13,7 +13,7 @@ from market_intelligence.intelligence.radar.service import RadarService
 def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings.from_env()
     radar = RadarService([KnownRuleDetector(), RobustZScoreDetector()])
-    app = FastAPI(title="Market Intelligence IA", version="0.2.0")
+    app = FastAPI(title="Market Intelligence IA", version="0.3.0")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -27,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "read_only": cfg.read_only,
             "marketplace_writes": cfg.allow_marketplace_writes and not cfg.read_only,
             "persistence_configured": bool(cfg.database_url),
+            "temporal_enabled": cfg.temporal_enabled,
         }
 
     @app.get("/v1/system/capabilities")
@@ -53,7 +54,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "unexplained_residual": False,
             },
             "channel_sensor": True,
-            "production_workflows": "temporal-planned",
+            "production_workflows": {
+                "engine": "temporal",
+                "implemented": True,
+                "runtime_enabled": cfg.temporal_enabled,
+                "durable_ingestion": True,
+                "activity_retries": True,
+                "workflow_idempotency": True,
+                "marketplace_reads_only": True,
+            },
         }
 
     @app.post("/v1/radar/evaluate", response_model=RadarFinding)
