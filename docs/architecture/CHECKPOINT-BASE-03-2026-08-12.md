@@ -3,7 +3,7 @@
 **Projeto:** Market Intelligence IA  
 **Fase:** BASE-03 — Temporal  
 **Data:** 12/08/2026  
-**Estado:** TECNICAMENTE APROVADA — AGUARDANDO MERGE
+**Estado:** CONCLUÍDA E VALIDADA
 
 ## Objetivo
 
@@ -34,8 +34,10 @@ Implantar orquestração durável sem transformar PostgreSQL em fila. O workflow
 - branch: `base-03-temporal`;
 - commit funcional inicial: `5e9fe99386c5e5ebf0860ab35e8146fc52a3ef7d`;
 - commit do gate de replay: `727a47f7bc3252604faff553b8ad5b53164de566`;
+- commit de merge no `main`: `6fa50d1e4be389eae397c30b07fdd7020e6c61eb`;
 - workflow CI inicial: `31642057489` — `success`;
 - workflow CI com replay: `31642265945` — `success`;
+- workflow pós-merge no `main`: `31644803624` — `success`;
 - PostgreSQL 18.3: saudável;
 - Temporal SDK `1.31.0`: instalado e executado;
 - compilação: aprovada;
@@ -55,6 +57,6 @@ Implantar orquestração durável sem transformar PostgreSQL em fila. O workflow
 - o teste de marketplace usa adapter sintético, sem rede Mercado Livre;
 - nenhuma chamada real ou escrita no Mercado Livre foi executada.
 
-## Gate pendente
+## Fechamento
 
-O código está tecnicamente aprovado no PR #2. Como o repositório é público, o merge no `main` exige autorização explícita antes da publicação final desta fase.
+A BASE-03 está incorporada ao `main` e validada após o merge. Não há gate pendente nesta fase. O próximo ciclo deve partir deste estado seguro.
