@@ -43,5 +43,11 @@ jobs:
         run: python -m compileall -q src tests migrations
       - name: Migrate PostgreSQL
         run: alembic upgrade head
+      - name: Validate migration drift
+        run: alembic check
+      - name: Validate migration rollback
+        run: |
+          alembic downgrade base
+          alembic upgrade head
       - name: Test
         run: pytest -q

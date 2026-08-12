@@ -34,7 +34,9 @@ def test_postgres_repositories_and_atomic_oauth_consumption() -> None:
         sessions = create_session_factory(engine)
         suffix = uuid4().hex
         now = datetime.now(UTC)
-        entity = EntityRef(marketplace="mercadolivre", entity_type="listing", entity_id=f"MLB-{suffix}")
+        entity = EntityRef(
+            marketplace="mercadolivre", entity_type="listing", entity_id=f"MLB-{suffix}"
+        )
 
         try:
             assert await database_healthcheck(sessions) is True
@@ -61,8 +63,18 @@ def test_postgres_repositories_and_atomic_oauth_consumption() -> None:
 
             snapshot_repo = PostgresSnapshotRepository(sessions)
             assert await snapshot_repo.append_if_changed(entity, {"status": "paused"}, now) is True
-            assert await snapshot_repo.append_if_changed(entity, {"status": "paused"}, now + timedelta(seconds=1)) is False
-            assert await snapshot_repo.append_if_changed(entity, {"status": "closed"}, now + timedelta(seconds=2)) is True
+            assert (
+                await snapshot_repo.append_if_changed(
+                    entity, {"status": "paused"}, now + timedelta(seconds=1)
+                )
+                is False
+            )
+            assert (
+                await snapshot_repo.append_if_changed(
+                    entity, {"status": "closed"}, now + timedelta(seconds=2)
+                )
+                is True
+            )
 
             oauth_repo = PostgresOAuthStateRepository(sessions)
             state_hash = hashlib.sha256(f"synthetic-{suffix}".encode()).hexdigest()
@@ -73,8 +85,35 @@ def test_postgres_repositories_and_atomic_oauth_consumption() -> None:
                 metadata={"test": True},
                 synthetic=True,
             )
-            assert await oauth_repo.consume(state_hash=state_hash, consumed_at=now + timedelta(seconds=1)) is True
-            assert await oauth_repo.consume(state_hash=state_hash, consumed_at=now + timedelta(seconds=2)) is False
+            assert (
+                await oauth_repo.consume(
+                    state_hash=state_hash, consumed_at=now + timedelta(seconds=1)
+                )
+                is True
+            )
+            assert (
+                await oauth_repo.consume(
+                    state_hash=state_hash, consumed_at=now + timedelta(seconds=2)
+                )
+                is False
+            )
+
+            concurrent_hash = hashlib.sha256(f"concurrent-{suffix}".encode()).hexdigest()
+            await oauth_repo.create(
+                marketplace="mercadolivre",
+                state_hash=concurrent_hash,
+                expires_at=now + timedelta(minutes=10),
+                synthetic=True,
+            )
+            consume_results = await asyncio.gather(
+                oauth_repo.consume(
+                    state_hash=concurrent_hash, consumed_at=now + timedelta(seconds=3)
+                ),
+                oauth_repo.consume(
+                    state_hash=concurrent_hash, consumed_at=now + timedelta(seconds=3)
+                ),
+            )
+            assert sorted(consume_results) == [False, True]
 
             alert_repo = PostgresAlertRepository(sessions)
             await alert_repo.save(
@@ -95,7 +134,9 @@ def test_postgres_repositories_and_atomic_oauth_consumption() -> None:
             )
             async with sessions() as session:
                 alert_count = await session.scalar(select(func.count()).select_from(AlertRecord))
-                evidence_count = await session.scalar(select(func.count()).select_from(EvidenceRecord))
+                evidence_count = await session.scalar(
+                    select(func.count()).select_from(EvidenceRecord)
+                )
                 assert alert_count is not None and alert_count >= 1
                 assert evidence_count is not None and evidence_count >= 1
         finally:

@@ -22,7 +22,9 @@ from market_intelligence.persistence.models import (
 
 def raw_event_dedupe_key(event: RawEvent) -> str:
     if event.external_id:
-        material = "\x1f".join([event.source, event.event_type, "external", event.external_id]).encode("utf-8")
+        material = "\x1f".join(
+            [event.source, event.event_type, "external", event.external_id]
+        ).encode("utf-8")
     else:
         occurred = event.occurred_at.isoformat() if event.occurred_at else ""
         material = "\x1f".join(
@@ -50,10 +52,11 @@ class PostgresRawEventRepository:
                 payload=event.payload,
             )
             .on_conflict_do_nothing(constraint="uq_raw_events_dedupe_key")
+            .returning(RawEventRecord.id)
         )
         async with self._sessions() as session, session.begin():
             result = await session.execute(statement)
-            return result.rowcount == 1
+            return result.scalar_one_or_none() is not None
 
 
 class PostgresEntityRepository:
@@ -113,10 +116,11 @@ class PostgresSnapshotRepository:
                 payload=payload,
             )
             .on_conflict_do_nothing(constraint="uq_snapshots_entity_hash")
+            .returning(SnapshotRecord.id)
         )
         async with self._sessions() as session, session.begin():
             result = await session.execute(statement)
-            return result.rowcount == 1
+            return result.scalar_one_or_none() is not None
 
 
 class PostgresAlertRepository:
@@ -185,10 +189,12 @@ class PostgresOAuthStateRepository:
             created_at=created_at or datetime.now(UTC),
             expires_at=expires_at,
         )
-        statement = statement.on_conflict_do_nothing(constraint="uq_oauth_states_state_hash")
+        statement = statement.on_conflict_do_nothing(
+            constraint="uq_oauth_states_state_hash"
+        ).returning(OAuthStateRecord.id)
         async with self._sessions() as session, session.begin():
             result = await session.execute(statement)
-            if result.rowcount != 1:
+            if result.scalar_one_or_none() is None:
                 raise ValueError("OAuth state already exists")
 
     async def consume(self, *, state_hash: str, consumed_at: datetime | None = None) -> bool:
