@@ -91,6 +91,15 @@ class OAuthActivities:
     def __init__(self, runtime: SyntheticOAuthRuntime) -> None:
         self._runtime = runtime
 
+    async def _current_version(self, account_id: str) -> int:
+        current = await self._runtime.refresh.credentials.get(
+            marketplace=self._runtime.settings.marketplace,
+            account_id=account_id,
+        )
+        if current is None:
+            raise ApplicationError("credential_missing", non_retryable=True)
+        return current.version
+
     @activity.defn(name=ACTIVITY_OAUTH_REFRESH)
     async def refresh(self, payload: dict[str, Any]) -> dict[str, int]:
         safe = validate_safe_oauth_temporal_payload(payload, activity_payload=True)
@@ -107,12 +116,27 @@ class OAuthActivities:
                 if isinstance(version, int) and version > 0:
                     return {"credential_version": version}
                 raise ApplicationError("Completed OAuth operation lacks safe result", non_retryable=True)
+            base_version = existing.metadata.get("base_version")
+            if not isinstance(base_version, int) or base_version < 1:
+                raise ApplicationError("OAuth operation lacks version baseline", non_retryable=True)
+            current_version = await self._current_version(account_id)
+            if current_version > base_version:
+                completed = await self._runtime.operations.complete(
+                    idempotency_key=idempotency_key,
+                    status="completed",
+                    metadata={"account_id": account_id, "base_version": base_version,
+                              "credential_version": current_version},
+                )
+                if not completed:
+                    raise RuntimeError("OAuth operation result persistence failed")
+                return {"credential_version": current_version}
         else:
+            base_version = await self._current_version(account_id)
             created = await self._runtime.operations.begin(
                 operation="synthetic_refresh_temporal",
                 idempotency_key=idempotency_key,
                 correlation_id=correlation_id,
-                metadata={"account_id": account_id},
+                metadata={"account_id": account_id, "base_version": base_version},
             )
             if not created:
                 raise ApplicationError("OAuth operation registration race")
@@ -133,7 +157,8 @@ class OAuthActivities:
         completed = await self._runtime.operations.complete(
             idempotency_key=idempotency_key,
             status="completed",
-            metadata={"account_id": account_id, "credential_version": version},
+            metadata={"account_id": account_id, "base_version": base_version,
+                      "credential_version": version},
         )
         if not completed:
             raise RuntimeError("OAuth operation result persistence failed")
