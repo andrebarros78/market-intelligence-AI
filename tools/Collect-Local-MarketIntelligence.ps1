@@ -36,14 +36,45 @@ $secretContentPatterns = @(
     '-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'
 )
 
-function Test-ExcludedPath {
-    param([string]$Path)
-    foreach ($name in $excludeDirNames) {
-        if ($Path -match [regex]::Escape([IO.Path]::DirectorySeparatorChar + $name + [IO.Path]::DirectorySeparatorChar)) {
-            return $true
+function Test-ExcludedDirectoryName {
+    param([string]$Name)
+    return ($excludeDirNames -contains $Name)
+}
+
+function Get-PrunedDirectories {
+    param([string]$Root)
+
+    $stack = New-Object 'System.Collections.Generic.Stack[string]'
+    $stack.Push($Root)
+
+    while ($stack.Count -gt 0) {
+        $current = $stack.Pop()
+        foreach ($dir in @(Get-ChildItem -LiteralPath $current -Directory -Force -ErrorAction SilentlyContinue)) {
+            if (Test-ExcludedDirectoryName $dir.Name) { continue }
+            $dir
+            $stack.Push($dir.FullName)
         }
     }
-    return $false
+}
+
+function Get-PrunedFiles {
+    param([string]$Root)
+
+    $stack = New-Object 'System.Collections.Generic.Stack[string]'
+    $stack.Push($Root)
+
+    while ($stack.Count -gt 0) {
+        $current = $stack.Pop()
+
+        foreach ($file in @(Get-ChildItem -LiteralPath $current -File -Force -ErrorAction SilentlyContinue)) {
+            $file
+        }
+
+        foreach ($dir in @(Get-ChildItem -LiteralPath $current -Directory -Force -ErrorAction SilentlyContinue)) {
+            if (Test-ExcludedDirectoryName $dir.Name) { continue }
+            $stack.Push($dir.FullName)
+        }
+    }
 }
 
 function Test-ProjectPath {
@@ -59,9 +90,9 @@ function Get-FileCategory {
     $ext = $File.Extension.ToLowerInvariant()
     $name = $File.Name.ToLowerInvariant()
     if ($name -match '^\.env($|\.)' -or $name -match 'secret|credential|token' -or $ext -in @('.pem','.key','.p12','.pfx')) { return 'secret-risk' }
+    if ($name -match 'test|spec|fixture') { return 'test' }
     if ($ext -in @('.py','.ps1','.psm1','.ts','.tsx','.js','.jsx','.go','.rs','.sql','.sh','.bat','.cmd','.toml','.yaml','.yml','.json')) { return 'source-config' }
     if ($ext -in @('.md','.txt','.rst','.pdf','.docx','.xlsx','.csv','.html')) { return 'documentation-data' }
-    if ($name -match 'test|spec|fixture') { return 'test' }
     if ($ext -in @('.db','.sqlite','.sqlite3','.bak','.dump')) { return 'database-artifact' }
     if ($ext -in @('.zip','.7z','.rar','.tar','.gz','.tgz')) { return 'archive' }
     if ($ext -in @('.log')) { return 'log' }
@@ -104,15 +135,17 @@ function Get-GitSnapshot {
 Write-Host '=== MARKET INTELLIGENCE IA - COLETA LOCAL SOMENTE LEITURA ==='
 Write-Host "Saida: $out"
 
-$candidateDirs = New-Object System.Collections.Generic.List[string]
+$candidateDirs = New-Object 'System.Collections.Generic.List[string]'
 foreach ($root in $ScanRoots) {
     if (-not (Test-Path $root)) { continue }
 
     if (Test-ProjectPath $root) { $candidateDirs.Add((Resolve-Path $root).Path) }
 
-    Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -ErrorAction SilentlyContinue |
-        Where-Object { -not (Test-ExcludedPath $_.FullName) -and (Test-ProjectPath $_.FullName) } |
-        ForEach-Object { $candidateDirs.Add($_.FullName) }
+    foreach ($dir in @(Get-PrunedDirectories -Root $root)) {
+        if (Test-ProjectPath $dir.FullName) {
+            $candidateDirs.Add($dir.FullName)
+        }
+    }
 }
 
 # Sempre inclui caminhos historicamente usados, se existirem.
@@ -130,7 +163,7 @@ foreach ($p in $known) {
 
 # Reduz subpastas duplicadas quando um diretório pai já representa o projeto.
 $projects = @($candidateDirs | Sort-Object -Unique | Sort-Object Length)
-$selectedProjects = New-Object System.Collections.Generic.List[string]
+$selectedProjects = New-Object 'System.Collections.Generic.List[string]'
 foreach ($p in $projects) {
     $covered = $false
     foreach ($selected in $selectedProjects) {
@@ -142,65 +175,63 @@ foreach ($p in $projects) {
     if (-not $covered) { $selectedProjects.Add($p) }
 }
 
-$fileInventory = New-Object System.Collections.Generic.List[object]
-$secretRisks = New-Object System.Collections.Generic.List[object]
-$gitSnapshots = New-Object System.Collections.Generic.List[object]
+$fileInventory = New-Object 'System.Collections.Generic.List[object]'
+$secretRisks = New-Object 'System.Collections.Generic.List[object]'
+$gitSnapshots = New-Object 'System.Collections.Generic.List[object]'
 
 foreach ($project in $selectedProjects) {
     Write-Host "Coletando: $project"
     $gitState = Get-GitSnapshot -ProjectPath $project
     if ($gitState) { $gitSnapshots.Add($gitState) }
 
-    Get-ChildItem -LiteralPath $project -File -Recurse -Force -ErrorAction SilentlyContinue |
-        Where-Object { -not (Test-ExcludedPath $_.FullName) } |
-        ForEach-Object {
-            $file = $_
-            $relative = $file.FullName.Substring($project.Length).TrimStart('\')
-            $category = Get-FileCategory -File $file
-            $hash = Get-Sha256Safe -File $file
+    foreach ($file in @(Get-PrunedFiles -Root $project)) {
+        $relative = $file.FullName.Substring($project.Length).TrimStart('\')
+        $category = Get-FileCategory -File $file
+        $hash = Get-Sha256Safe -File $file
 
-            $record = [pscustomobject][ordered]@{
+        $record = [pscustomobject][ordered]@{
+            project_root = $project
+            relative_path = $relative
+            full_path = $file.FullName
+            category = $category
+            extension = $file.Extension
+            size_bytes = $file.Length
+            modified_utc = $file.LastWriteTimeUtc.ToString('o')
+            sha256 = $hash
+        }
+        $fileInventory.Add($record)
+
+        $nameRisk = $false
+        foreach ($pattern in $secretFilePatterns) {
+            if ($file.Name -match $pattern) { $nameRisk = $true; break }
+        }
+        if ($nameRisk) {
+            $secretRisks.Add([pscustomobject]@{
                 project_root = $project
                 relative_path = $relative
-                full_path = $file.FullName
-                category = $category
-                extension = $file.Extension
-                size_bytes = $file.Length
-                modified_utc = $file.LastWriteTimeUtc.ToString('o')
-                sha256 = $hash
-            }
-            $fileInventory.Add($record)
-
-            $nameRisk = $false
-            foreach ($pattern in $secretFilePatterns) {
-                if ($file.Name -match $pattern) { $nameRisk = $true; break }
-            }
-            if ($nameRisk) {
-                $secretRisks.Add([pscustomobject]@{
-                    project_root = $project
-                    relative_path = $relative
-                    risk = 'filename'
-                    rule = 'secret-like filename'
-                })
-            }
-
-            # Conteúdo: somente arquivos texto pequenos. Nunca grava o valor encontrado.
-            if ($file.Length -le 2MB -and $file.Extension.ToLowerInvariant() -in @('.py','.ps1','.psm1','.ts','.tsx','.js','.jsx','.go','.rs','.sql','.sh','.bat','.cmd','.toml','.yaml','.yml','.json','.ini','.cfg','.conf','.txt','.md','.env')) {
-                try {
-                    $text = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction Stop
-                    foreach ($pattern in $secretContentPatterns) {
-                        if ($text -match $pattern) {
-                            $secretRisks.Add([pscustomobject]@{
-                                project_root = $project
-                                relative_path = $relative
-                                risk = 'content-pattern'
-                                rule = $pattern
-                            })
-                        }
-                    }
-                } catch {}
-            }
+                risk = 'filename'
+                rule = 'secret-like filename'
+            })
         }
+
+        # Conteúdo: somente arquivos texto pequenos. Nunca grava o valor encontrado.
+        $isEnvFile = ($file.Name -match '^\.env($|\.)')
+        if ($file.Length -le 2MB -and ($isEnvFile -or $file.Extension.ToLowerInvariant() -in @('.py','.ps1','.psm1','.ts','.tsx','.js','.jsx','.go','.rs','.sql','.sh','.bat','.cmd','.toml','.yaml','.yml','.json','.ini','.cfg','.conf','.txt','.md'))) {
+            try {
+                $text = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction Stop
+                foreach ($pattern in $secretContentPatterns) {
+                    if ($text -match $pattern) {
+                        $secretRisks.Add([pscustomobject]@{
+                            project_root = $project
+                            relative_path = $relative
+                            risk = 'content-pattern'
+                            rule = $pattern
+                        })
+                    }
+                }
+            } catch {}
+        }
+    }
 }
 
 $selectedProjects | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out 'projects.json') -Encoding UTF8
