@@ -1,13 +1,24 @@
 from sqlalchemy import create_engine, inspect
 
+from market_intelligence.marketplaces.mercadolivre.oauth import db_models as _oauth_db_models  # noqa: F401
 from market_intelligence.persistence.models import Base
 
 
-def test_base02_schema_can_be_materialized_in_memory() -> None:
+def test_operational_schema_can_be_materialized_in_memory() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     tables = set(inspect(engine).get_table_names())
-    assert tables == {"raw_events", "entities", "snapshots", "alerts", "evidence", "oauth_states"}
+    assert tables == {
+        "raw_events",
+        "entities",
+        "snapshots",
+        "alerts",
+        "evidence",
+        "oauth_states",
+        "oauth_credentials",
+        "oauth_audit",
+        "oauth_operations",
+    }
 
 
 def test_oauth_state_schema_never_persists_plaintext_state_or_tokens() -> None:
@@ -15,6 +26,14 @@ def test_oauth_state_schema_never_persists_plaintext_state_or_tokens() -> None:
     assert "state_hash" in columns
     assert "verifier_envelope" in columns
     assert "state" not in columns
+    assert "access_token" not in columns
+    assert "refresh_token" not in columns
+    assert "client_secret" not in columns
+
+
+def test_oauth_credential_schema_persists_only_envelopes_and_refresh_control() -> None:
+    columns = set(Base.metadata.tables["oauth_credentials"].columns.keys())
+    assert {"access_envelope", "refresh_envelope", "refresh_claim_id", "refresh_started_at", "last_refresh_at"} <= columns
     assert "access_token" not in columns
     assert "refresh_token" not in columns
     assert "client_secret" not in columns
