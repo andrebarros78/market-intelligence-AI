@@ -9,6 +9,7 @@ class Settings:
     environment: str = "development"
     read_only: bool = True
     allow_marketplace_writes: bool = False
+    database_url: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -16,6 +17,7 @@ class Settings:
             environment=os.getenv("MI_ENVIRONMENT", "development"),
             read_only=os.getenv("MI_READ_ONLY", "true").lower() == "true",
             allow_marketplace_writes=os.getenv("MI_ALLOW_MARKETPLACE_WRITES", "false").lower() == "true",
+            database_url=os.getenv("MI_DATABASE_URL") or None,
         )
 
     def assert_marketplace_write_allowed(self) -> None:

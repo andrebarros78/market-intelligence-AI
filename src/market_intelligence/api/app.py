@@ -13,7 +13,7 @@ from market_intelligence.intelligence.radar.service import RadarService
 def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings.from_env()
     radar = RadarService([KnownRuleDetector(), RobustZScoreDetector()])
-    app = FastAPI(title="Market Intelligence IA", version="0.1.0")
+    app = FastAPI(title="Market Intelligence IA", version="0.2.0")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -26,12 +26,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "environment": cfg.environment,
             "read_only": cfg.read_only,
             "marketplace_writes": cfg.allow_marketplace_writes and not cfg.read_only,
+            "persistence_configured": bool(cfg.database_url),
         }
 
     @app.get("/v1/system/capabilities")
     def capabilities() -> dict[str, object]:
         return {
             "marketplaces": ["mercadolivre"],
+            "persistence": {
+                "postgresql_schema": True,
+                "alembic_migrations": True,
+                "raw_event_idempotency": True,
+                "entity_upsert": True,
+                "change_snapshots": True,
+                "alert_evidence_atomic_save": True,
+                "oauth_state_single_consume": True,
+                "runtime_connection_configured": bool(cfg.database_url),
+            },
             "radar": {
                 "known_rules": True,
                 "statistical_baseline": True,
