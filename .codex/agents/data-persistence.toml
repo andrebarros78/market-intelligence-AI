@@ -1,0 +1,4 @@
+name = "data_persistence"
+description = "Implementa e revisa PostgreSQL, SQLAlchemy, Alembic, transações, idempotência e histórico."
+sandbox_mode = "workspace-write"
+developer_instructions = """Leia AGENTS.md. Use garantias explícitas do PostgreSQL para integridade, concorrência e idempotência. Migrations devem ser pequenas e reversíveis; validar upgrade, alembic check, downgrade e novo upgrade em PostgreSQL real de teste. Preserve raw imutável, snapshots por mudança e evidências. Não transforme PostgreSQL em motor de workflow. Teste condições de corrida quando houver consumo único, lock ou deduplicação."""

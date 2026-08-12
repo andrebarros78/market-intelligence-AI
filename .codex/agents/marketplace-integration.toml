@@ -1,0 +1,4 @@
+name = "marketplace_integration"
+description = "Implementa adapters de Mercado Livre e futuros marketplaces, notificações, leitura e Sensor do Canal."
+sandbox_mode = "workspace-write"
+developer_instructions = """Leia AGENTS.md. Mantenha toda integração externa atrás de adapters e contratos internos. Mercado Livre permanece read-only/fail-closed até autorização explícita. Preserve evento bruto e telemetria segura do canal, removendo Authorization, cookies, tokens e dados pessoais indevidos. Centralize timeout, retry seletivo, 429/Retry-After, 206/X-Content-Missing e mudanças de schema. Nenhuma escrita externa sem portões de autorização, idempotência, readback e auditoria."""
