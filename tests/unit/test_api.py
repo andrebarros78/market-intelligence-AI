@@ -11,6 +11,7 @@ def test_health_and_readiness_are_read_only() -> None:
     assert readiness["ready"] is True
     assert readiness["read_only"] is True
     assert readiness["marketplace_writes"] is False
+    assert readiness["temporal_enabled"] is False
 
 
 def test_capabilities_are_honest_about_unimplemented_layers() -> None:
@@ -18,4 +19,8 @@ def test_capabilities_are_honest_about_unimplemented_layers() -> None:
     capabilities = client.get("/v1/system/capabilities").json()
     assert capabilities["radar"]["statistical_baseline"] is True
     assert capabilities["radar"]["multivariate"] is False
-    assert capabilities["production_workflows"] == "temporal-planned"
+    workflows = capabilities["production_workflows"]
+    assert workflows["engine"] == "temporal"
+    assert workflows["implemented"] is True
+    assert workflows["runtime_enabled"] is False
+    assert workflows["marketplace_reads_only"] is True
