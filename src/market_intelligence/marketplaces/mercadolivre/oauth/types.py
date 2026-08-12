@@ -84,7 +84,6 @@ class OperationState:
     marketplace: str
     operation: str
     status: str
-    requested_at: datetime
     metadata: dict = field(default_factory=dict)
 
 
