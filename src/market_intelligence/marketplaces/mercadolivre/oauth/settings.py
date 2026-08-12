@@ -11,6 +11,8 @@ class OAuthRuntimeSettings:
     writes_blocked: bool = True
     transaction_ttl_seconds: int = 600
     refresh_margin_seconds: int = 300
+    refresh_claim_ttl_seconds: int = 120
+    refresh_dedup_seconds: int = 30
     synthetic_refresh_enabled: bool = True
     expected_schema_revision: str = "0002_r11_oauth"
 
@@ -25,6 +27,10 @@ class OAuthRuntimeSettings:
             raise ValueError("transaction_ttl_seconds must be positive")
         if self.refresh_margin_seconds < 0:
             raise ValueError("refresh_margin_seconds cannot be negative")
+        if self.refresh_claim_ttl_seconds <= 0:
+            raise ValueError("refresh_claim_ttl_seconds must be positive")
+        if self.refresh_dedup_seconds < 0:
+            raise ValueError("refresh_dedup_seconds cannot be negative")
 
     def assert_real_network_allowed(self) -> None:
         if self.synthetic_only or self.network_blocked:
