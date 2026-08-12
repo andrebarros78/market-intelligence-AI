@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, text, update
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -11,7 +11,7 @@ from market_intelligence.persistence.models import OAuthStateRecord
 
 from .db_models import OAuthAuditRecord, OAuthCredentialRecord, OAuthOperationRecord
 from .sanitize import sanitize_mapping
-from .types import ConsumedTransaction, CredentialEnvelope
+from .types import ConsumedTransaction, CredentialEnvelope, RefreshClaim
 
 
 class OAuthTransactionStore:
@@ -84,6 +84,20 @@ class OAuthCredentialStore:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
 
+    @staticmethod
+    def _envelope_from_row(row: Any) -> CredentialEnvelope:
+        return CredentialEnvelope(
+            marketplace=row.marketplace,
+            account_id=row.account_id,
+            access_envelope=row.access_envelope,
+            refresh_envelope=row.refresh_envelope,
+            expires_at=row.expires_at,
+            scopes=tuple(row.scopes_json or []),
+            key_version=row.key_version,
+            version=row.version,
+            status=row.status,
+        )
+
     async def put(
         self,
         *,
@@ -105,6 +119,9 @@ class OAuthCredentialStore:
             key_version=key_version,
             version=1,
             status="active",
+            refresh_claim_id=None,
+            refresh_started_at=None,
+            last_refresh_at=None,
         )
         statement = statement.on_conflict_do_update(
             constraint="uq_oauth_credentials_account",
@@ -116,6 +133,9 @@ class OAuthCredentialStore:
                 "key_version": statement.excluded.key_version,
                 "version": OAuthCredentialRecord.version + 1,
                 "status": "active",
+                "refresh_claim_id": None,
+                "refresh_started_at": None,
+                "last_refresh_at": None,
                 "updated_at": datetime.now(UTC),
             },
         ).returning(OAuthCredentialRecord.version)
@@ -132,31 +152,68 @@ class OAuthCredentialStore:
                     )
                 )
             ).scalar_one_or_none()
-            if row is None:
-                return None
-            return CredentialEnvelope(
-                marketplace=row.marketplace,
-                account_id=row.account_id,
-                access_envelope=row.access_envelope,
-                refresh_envelope=row.refresh_envelope,
-                expires_at=row.expires_at,
-                scopes=tuple(row.scopes_json or []),
-                key_version=row.key_version,
-                version=row.version,
-                status=row.status,
-            )
+            return self._envelope_from_row(row) if row is not None else None
 
-    async def rotate(
+    async def claim_refresh(
         self,
         *,
         marketplace: str,
         account_id: str,
+        claim_id: str,
+        now: datetime,
+        claim_ttl_seconds: int,
+        dedup_seconds: int,
+    ) -> RefreshClaim | None:
+        stale_before = now - timedelta(seconds=claim_ttl_seconds)
+        dedup_before = now - timedelta(seconds=dedup_seconds)
+        statement = (
+            update(OAuthCredentialRecord)
+            .where(
+                OAuthCredentialRecord.marketplace == marketplace,
+                OAuthCredentialRecord.account_id == account_id,
+                OAuthCredentialRecord.status == "active",
+                or_(
+                    OAuthCredentialRecord.refresh_claim_id.is_(None),
+                    OAuthCredentialRecord.refresh_started_at.is_(None),
+                    OAuthCredentialRecord.refresh_started_at <= stale_before,
+                ),
+                or_(
+                    OAuthCredentialRecord.last_refresh_at.is_(None),
+                    OAuthCredentialRecord.last_refresh_at <= dedup_before,
+                ),
+            )
+            .values(refresh_claim_id=claim_id, refresh_started_at=now)
+            .returning(
+                OAuthCredentialRecord.marketplace,
+                OAuthCredentialRecord.account_id,
+                OAuthCredentialRecord.access_envelope,
+                OAuthCredentialRecord.refresh_envelope,
+                OAuthCredentialRecord.expires_at,
+                OAuthCredentialRecord.scopes_json,
+                OAuthCredentialRecord.key_version,
+                OAuthCredentialRecord.version,
+                OAuthCredentialRecord.status,
+            )
+        )
+        async with self._sessions() as session, session.begin():
+            row = (await session.execute(statement)).one_or_none()
+            if row is None:
+                return None
+            return RefreshClaim(claim_id=claim_id, credential=self._envelope_from_row(row))
+
+    async def rotate_claimed(
+        self,
+        *,
+        marketplace: str,
+        account_id: str,
+        claim_id: str,
         expected_version: int,
         access_envelope: bytes,
         refresh_envelope: bytes,
         expires_at: datetime,
         scopes: tuple[str, ...],
         key_version: str,
+        refreshed_at: datetime,
     ) -> int | None:
         statement = (
             update(OAuthCredentialRecord)
@@ -165,6 +222,7 @@ class OAuthCredentialStore:
                 OAuthCredentialRecord.account_id == account_id,
                 OAuthCredentialRecord.version == expected_version,
                 OAuthCredentialRecord.status == "active",
+                OAuthCredentialRecord.refresh_claim_id == claim_id,
             )
             .values(
                 access_envelope=access_envelope,
@@ -173,13 +231,38 @@ class OAuthCredentialStore:
                 scopes_json=list(scopes),
                 key_version=key_version,
                 version=OAuthCredentialRecord.version + 1,
-                updated_at=datetime.now(UTC),
+                refresh_claim_id=None,
+                refresh_started_at=None,
+                last_refresh_at=refreshed_at,
+                updated_at=refreshed_at,
             )
             .returning(OAuthCredentialRecord.version)
         )
         async with self._sessions() as session, session.begin():
             value = (await session.execute(statement)).scalar_one_or_none()
             return int(value) if value is not None else None
+
+    async def release_refresh_claim(
+        self,
+        *,
+        marketplace: str,
+        account_id: str,
+        claim_id: str,
+        expected_version: int,
+    ) -> bool:
+        statement = (
+            update(OAuthCredentialRecord)
+            .where(
+                OAuthCredentialRecord.marketplace == marketplace,
+                OAuthCredentialRecord.account_id == account_id,
+                OAuthCredentialRecord.version == expected_version,
+                OAuthCredentialRecord.refresh_claim_id == claim_id,
+            )
+            .values(refresh_claim_id=None, refresh_started_at=None)
+            .returning(OAuthCredentialRecord.id)
+        )
+        async with self._sessions() as session, session.begin():
+            return (await session.execute(statement)).scalar_one_or_none() is not None
 
 
 class OAuthAuditStore:
