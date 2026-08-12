@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "project": "Market Intelligence AI",
+  "baseline_id": "2026-08-12-initial",
+  "policy": {
+    "resolution": "Resolve a stable upstream release once, record tag and commit, compute SHA-256, and never use a moving latest reference at runtime.",
+    "storage": "Clean source archives are stored as GitHub Release assets in this repository; Git history stores manifests and checksums only.",
+    "license": "Upstream license, notices, copyright files and source tree are preserved inside each clean archive."
+  },
+  "components": [
+    {
+      "name": "higress",
+      "repository": "higress-group/higress",
+      "purpose": "API/AI/MCP gateway and controlled connection layer",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "temporal-server",
+      "repository": "temporalio/temporal",
+      "purpose": "Durable workflows, retries, recovery and orchestration",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "temporal-python-sdk",
+      "repository": "temporalio/sdk-python",
+      "purpose": "Python client and workers for Temporal",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "fastapi",
+      "repository": "fastapi/fastapi",
+      "purpose": "HTTP API and OpenAPI backend",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "pydantic",
+      "repository": "pydantic/pydantic",
+      "purpose": "Versioned internal contracts and validation",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "httpx",
+      "repository": "encode/httpx",
+      "purpose": "Central asynchronous HTTP client",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "authlib",
+      "repository": "authlib/authlib",
+      "purpose": "OAuth 2.0/OIDC protocol implementation",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "sqlalchemy",
+      "repository": "sqlalchemy/sqlalchemy",
+      "purpose": "PostgreSQL persistence layer",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "alembic",
+      "repository": "sqlalchemy/alembic",
+      "purpose": "Database schema migrations",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "cryptography",
+      "repository": "pyca/cryptography",
+      "purpose": "Authenticated encryption for secrets and tokens",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "postgresql",
+      "repository": "postgres/postgres",
+      "purpose": "Operational and historical relational database",
+      "stage": "core_now",
+      "strategy": "fixed_ref",
+      "ref": "REL_18_3",
+      "enabled": true
+    },
+    {
+      "name": "duckdb",
+      "repository": "duckdb/duckdb",
+      "purpose": "Embedded analytical engine for historical analysis",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "polars",
+      "repository": "pola-rs/polars",
+      "purpose": "High-performance analytical transformations",
+      "stage": "core_now",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "pyod",
+      "repository": "yzhao062/pyod",
+      "purpose": "Anomaly detection after business-rule baseline",
+      "stage": "analytics_later",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "pgvector",
+      "repository": "pgvector/pgvector",
+      "purpose": "Vector search and semantic memory in PostgreSQL",
+      "stage": "prepared_later",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "statsforecast",
+      "repository": "Nixtla/statsforecast",
+      "purpose": "Time-series forecasting after sufficient history exists",
+      "stage": "analytics_later",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "opentelemetry-python",
+      "repository": "open-telemetry/opentelemetry-python",
+      "purpose": "Tracing and telemetry instrumentation",
+      "stage": "observability_later",
+      "strategy": "latest_release",
+      "enabled": true
+    },
+    {
+      "name": "prometheus",
+      "repository": "prometheus/prometheus",
+      "purpose": "Operational metrics and alerting data source",
+      "stage": "observability_later",
+      "strategy": "latest_release",
+      "enabled": true
+    }
+  ],
+  "external_not_vendored": [
+    {
+      "name": "NocoBase",
+      "repository": "andrebarros78/painel",
+      "reason": "Control plane is intentionally decoupled from the Market Intelligence AI core and has separate licensing constraints."
+    }
+  ]
+}
