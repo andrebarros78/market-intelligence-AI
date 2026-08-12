@@ -62,9 +62,9 @@ def build_synthetic_oauth_router(
         try:
             plan = await service.transactions.start(account_id=request.account_id,
                                                     redirect_uri=request.redirect_uri)
-        except Exception as exc:
+        except Exception:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                                detail="synthetic_oauth_start_failed") from exc
+                                detail="synthetic_oauth_start_failed") from None
         return OAuthStartResponse(state=plan.state, code_challenge=plan.code_challenge,
                                   code_challenge_method=plan.code_challenge_method,
                                   expires_at=plan.expires_at)
@@ -78,12 +78,12 @@ def build_synthetic_oauth_router(
                 state=request.state.get_secret_value(),
                 code=request.code.get_secret_value(),
             )
-        except PermissionError as exc:
+        except PermissionError:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                                detail="synthetic_oauth_callback_rejected") from exc
-        except Exception as exc:
+                                detail="synthetic_oauth_callback_rejected") from None
+        except Exception:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                                detail="synthetic_oauth_callback_failed") from exc
+                                detail="synthetic_oauth_callback_failed") from None
         return OAuthCallbackResponse(credential_version=version)
 
     @router.get("/health/{account_id}")
@@ -120,11 +120,15 @@ def build_synthetic_oauth_router(
         safe_payload = {"account_id": request.account_id}
         if request.correlation_id:
             safe_payload["correlation_id"] = request.correlation_id
-        workflow_id = await refresh_engine.start(
-            WORKFLOW_OAUTH_REFRESH,
-            safe_payload,
-            idempotency_key=request.idempotency_key,
-        )
+        try:
+            workflow_id = await refresh_engine.start(
+                WORKFLOW_OAUTH_REFRESH,
+                safe_payload,
+                idempotency_key=request.idempotency_key,
+            )
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                                detail="oauth_refresh_workflow_start_failed") from None
         return OAuthRefreshResponse(workflow_id=workflow_id)
 
     return router
