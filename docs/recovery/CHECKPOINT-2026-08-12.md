@@ -97,6 +97,12 @@ Nome funcional evoluído:
 
 **Radar de Perdas, Exceções e Anomalias — Detector de Desconhecidos**
 
+Especificação soberana registrada em:
+
+`docs/radar/RADAR-FUNCOES-V1.md`
+
+Commit de criação da especificação: `d0493bb2a8a2080b8baf30dd4aa69a8c3e4e347a`.
+
 O Radar não deve depender somente de regras previamente escritas. Deve combinar:
 
 - regras conhecidas;
