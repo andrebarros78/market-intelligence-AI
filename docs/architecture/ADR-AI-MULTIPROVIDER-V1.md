@@ -1,93 +1,250 @@
-# ADR — Arquitetura Multi-API de IA V1
+# ADR — Arquitetura Multi-IA e Controle de Custo V1
 
 **Data:** 13/08/2026
-**Estado:** APROVADO TECNICAMENTE PARA IMPLEMENTAÇÃO
-**Escopo:** agentes internos do Market Intelligence IA
+**Estado:** APROVADO EM PRINCÍPIO; RANKING DE MODELOS PENDENTE DE BENCHMARK
+**Escopo:** inteligência principal, agentes internos e runtime automatizado do Market Intelligence IA
 
-## Decisão
+## Decisão soberana
 
-O Market Intelligence IA terá **uma única API/contrato interno de IA**, estável e independente de fornecedor. Os agentes nunca chamarão Groq, Z.AI, SiliconFlow, Moonshot/Kimi ou DeepSeek diretamente.
+O **ChatGPT/Pipo permanece como inteligência principal e orquestradora do sistema**.
 
-A topologia aprovada é:
+As APIs externas de IA não substituem essa autoridade. Elas formam um pool de capacidade para os agentes e para o runtime automatizado quando uma tarefa precisar ser executada sem depender de uma conversa interativa aberta.
+
+O Market Intelligence IA terá **uma única API/contrato interno de IA**, estável e independente de fornecedor. Nenhum agente chama diretamente OpenAI, Groq, Z.AI/GLM, SiliconFlow/Qwen, DeepSeek ou Moonshot/Kimi.
 
 ```text
-AGENTES
-   |
-   v
+PROPRIETÁRIO
+    |
+CHATGPT / PIPO
+inteligência principal + direção técnica
+    |
+    v
+AGENTES ESPECIALIZADOS
+    |
+    v
 AI ROUTER / GATEWAY INTERNO
-   |
-   +--> PRINCIPAL-RÁPIDO: Groq
-   +--> PRINCIPAL-PROFUNDO: Z.AI / GLM
-   +--> RESERVA: SiliconFlow / Qwen
-   +--> ESPECIALISTA-LONGO: DeepSeek
-   +--> ESPECIALISTA-MULTIMODAL: Kimi
+    |
+    +--> OpenAI API
+    +--> Groq
+    +--> Z.AI / GLM
+    +--> SiliconFlow / Qwen
+    +--> DeepSeek
+    +--> Moonshot / Kimi
 ```
 
-A API do sistema permanece única. Provedor e modelo são decisões do roteador e podem mudar sem alterar o contrato dos agentes.
+Todos os provedores acima podem ser usados. **Isso não significa enviar cada tarefa para todos eles.** O roteador escolhe o menor custo capaz de cumprir o critério de qualidade e escala somente quando necessário.
 
-## Correção de nomenclatura
+## Separação ChatGPT x API
 
-`Groq/GLM` não é tratado como um único par provedor/modelo. Groq e Z.AI são provedores distintos. GLM é família de modelos Z.AI. Groq permanece no pool principal por baixa latência; GLM permanece no pool principal por capacidade de raciocínio/engenharia de longa duração.
+- `ChatGPT/Pipo`: cérebro principal, coordenação, decisão técnica, síntese, supervisão dos agentes e interação com o proprietário.
+- `OpenAI API`: um dos motores programáticos disponíveis para execução automática pelo software.
+- demais APIs: motores auxiliares, reservas ou especialistas conforme benchmark.
 
-## Perfis lógicos aprovados
+A assinatura do ChatGPT não deve ser tratada como franquia de API. Custos de API são controlados separadamente.
 
-### `fast_agent`
+## Nenhum ranking definitivo agora
 
-- Primário: Groq `openai/gpt-oss-120b`.
-- Finalidade: loops rápidos, classificação, sumarização operacional, transformação de contratos, preparação de chamadas de ferramenta e tarefas de baixa/média complexidade.
-- Regra: ferramentas executam no nosso runtime; não delegar efeitos externos a ferramenta server-side do provedor.
+A classificação anterior de “Groq primeiro”, “GLM segundo”, “DeepSeek contexto longo” etc. fica **suspensa como decisão fixa**.
 
-### `deep_agent`
+Essas hipóteses serão testadas. O ranking final será produzido por evidência para cada função de agente.
 
-- Primário: Z.AI família GLM.
-- Padrão econômico: `glm-4.7`.
-- Escalada crítica/long-horizon: `glm-5.1`.
-- Finalidade: arquitetura, depuração complexa, investigação causal, planejamento longo, revisão técnica e decisões de alta complexidade.
+Exemplo:
 
-### `reserve_agent`
+```text
+Agente de segurança
+  qualidade técnica
+  aderência a instruções
+  taxa de falso negativo
+  latência
+  custo por tarefa aprovada
+        -> ranking próprio
 
-- Provedor: SiliconFlow.
-- Família: Qwen.
-- O modelo físico é resolvido por um registry versionado e deve passar benchmark/contrato antes da promoção. Não colocar IDs de preview/deprecados diretamente nos agentes.
-- Finalidade: failover independente e capacidade adicional de engenharia/código.
+Agente de triagem
+  precisão suficiente
+  baixa latência
+  baixo custo
+        -> ranking diferente
+```
 
-### `long_context_specialist`
+Não existe obrigação de o melhor modelo de arquitetura ser também o melhor para classificação, SQL, resumo, código, visão ou análise de mercado.
 
-- Primário: DeepSeek `deepseek-v4-pro`.
-- Finalidade: contexto muito longo, análise histórica ampla, matemática/raciocínio profundo e grandes bases de código/documentos.
+## Regra econômica central
 
-### `multimodal_specialist`
+A unidade de decisão não será “preço por milhão de tokens” isoladamente.
 
-- Primário: Moonshot/Kimi `kimi-k2.6`.
-- Finalidade: imagem, vídeo, documentos visuais, frontend, análise multimodal e tarefas agentic long-horizon em que visão agrega valor.
+Será:
 
-## Regra de roteamento
+```text
+CUSTO EFETIVO POR TAREFA APROVADA
+=
+(tokens + ferramentas + retries + falhas + escaladas)
+/
+resultado que passou no critério de qualidade
+```
 
-O agente solicita uma **capacidade**, nunca um fornecedor:
+Um modelo barato que exige três tentativas pode ser mais caro que um modelo superior que resolve de primeira.
+
+Um modelo excelente e caro não deve ser usado para trabalho trivial.
+
+## Política de roteamento econômico
+
+Para cada tarefa o roteador considera:
+
+1. função do agente;
+2. criticidade;
+3. capacidade necessária;
+4. classificação/sensibilidade dos dados;
+5. qualidade histórica por tipo de tarefa;
+6. taxa de sucesso na primeira tentativa;
+7. latência;
+8. tokens de entrada e saída;
+9. cache disponível;
+10. custo estimado total;
+11. disponibilidade/saúde do provedor;
+12. orçamento restante do período.
+
+A política padrão é **economic-first com quality floor**:
+
+```text
+escolher o modelo mais econômico
+QUE já tenha demonstrado qualidade mínima
+para aquela função
+```
+
+Se o resultado não atingir o critério:
+
+```text
+modelo econômico
+    -> validação
+        -> insuficiente
+            -> modelo intermediário
+                -> validação
+                    -> crítico/complexo
+                        -> modelo de maior capacidade
+```
+
+## Perfis lógicos, não fornecedores fixos
+
+Os agentes pedem capacidades:
 
 ```text
 FAST
+STANDARD_REASONING
 DEEP_REASONING
 LONG_CONTEXT
 MULTIMODAL
 CODING
+DATA_ANALYSIS
 STRUCTURED_OUTPUT
 TOOL_USE
+HIGH_ASSURANCE
 ```
 
-O roteador seleciona o provedor/modelo conforme:
+O mapping físico fica em registry versionado e pode mudar sem alterar os agentes.
 
-1. capacidade exigida;
-2. classificação de dados;
-3. saúde do provedor;
-4. limite de contexto;
-5. latência;
-6. custo máximo da tarefa;
-7. histórico de qualidade do modelo para aquele perfil.
+## Pool aprovado para avaliação e uso
+
+### OpenAI
+
+Papel: candidato natural ao pool principal por integração com ChatGPT/Pipo, modelos agentic e família com diferentes faixas de custo/capacidade.
+
+Não fixar o modelo mais caro como default. O registry deve permitir níveis econômico, equilibrado e crítico.
+
+### Groq
+
+Papel: candidato forte para baixa latência e alto volume.
+
+Deve ser avaliado por custo efetivo e qualidade por tarefa; velocidade sozinha não determina prioridade.
+
+### Z.AI / GLM
+
+Papel: candidato para raciocínio, engenharia e agentes complexos.
+
+A família e versão escolhidas dependem de benchmark; não assumir que o maior modelo é o melhor custo-benefício.
+
+### SiliconFlow / Qwen
+
+Papel: agregador/reserva e família chinesa de alta importância estratégica.
+
+Também pode oferecer rotas alternativas para outras famílias. IDs físicos ficam no registry, nunca embutidos nos agentes.
+
+### DeepSeek
+
+Papel: candidato para raciocínio/código/análise, condicionado a benchmark real do perfil.
+
+A expressão “especialista de contexto” não é decisão arquitetural. Contexto máximo é apenas uma característica; o papel será comprovado nos testes.
+
+### Moonshot / Kimi
+
+Papel: candidato para multimodalidade, documentos extensos e tarefas complexas, condicionado a benchmark e custo efetivo.
+
+## Benchmark obrigatório por agente
+
+Antes de definir 1º, 2º e 3º lugar, cada função relevante terá um conjunto de tarefas representativas.
+
+Métricas mínimas:
+
+```text
+qualidade / acerto
+aderência ao contrato
+aderência às políticas
+sucesso de tool calling
+taxa de primeira tentativa
+latência p50 / p95
+input tokens
+output tokens
+cache
+custo por execução
+custo por tarefa aprovada
+falhas / 429 / 5xx
+consistência em repetição
+```
+
+Para agentes críticos incluir:
+
+```text
+falso positivo
+falso negativo
+capacidade de explicar evidência
+não inventar fatos
+não atravessar autorização
+```
+
+## Controle de orçamento
+
+O AI Router deverá ter:
+
+- orçamento máximo por tarefa;
+- orçamento por agente;
+- orçamento diário e mensal;
+- alerta em 50%, 75%, 90% e 100%;
+- bloqueio ou degradação controlada quando o teto for atingido;
+- limite de retries;
+- limite de escaladas;
+- limite de saída;
+- contabilização de cache e ferramentas;
+- relatório de custo por resultado útil.
+
+Nenhum agente tem permissão para aumentar orçamento por conta própria.
+
+## Estratégia de economia
+
+Prioridades:
+
+1. não enviar contexto desnecessário;
+2. usar recuperação seletiva de contexto;
+3. resumir histórico quando seguro;
+4. aproveitar cache de prompt quando disponível;
+5. limitar saída ao necessário;
+6. escolher modelo proporcional à dificuldade;
+7. evitar chamadas duplicadas;
+8. benchmark antes de escalar modelo;
+9. usar processamento em lote somente onde não houver requisito de tempo real;
+10. medir custo real, não estimativa teórica apenas.
 
 ## Failover
 
-Failover automático é permitido somente para falhas técnicas transitórias:
+Failover automático é permitido para falhas técnicas transitórias:
 
 - timeout;
 - conexão indisponível;
@@ -96,143 +253,86 @@ Failover automático é permitido somente para falhas técnicas transitórias:
 - modelo temporariamente indisponível;
 - circuit breaker aberto.
 
-Não executar failover automático para:
+Não fazer failover automático em:
 
-- 400 por contrato inválido;
-- 401/403 de credencial/permissão;
+- contrato inválido;
+- 401/403;
 - violação de política;
 - recusa de segurança;
-- erro de validação de ferramenta;
+- validação de ferramenta falha;
 - operação externa cujo efeito possa ter ocorrido e ainda não tenha sido reconciliado.
 
-## Ferramentas e ações
+## Ferramentas e efeitos externos
 
-Modelos podem **propor** tool calls. A execução pertence ao Market Intelligence IA.
-
-Fluxo obrigatório:
+Modelos podem propor chamadas. A execução pertence ao Market Intelligence IA:
 
 ```text
-modelo propõe ferramenta
-      |
-validação de schema
-      |
-policy / autorização / escopo
-      |
-idempotência
-      |
-executor interno
-      |
-readback / evidência
-      |
-resultado volta ao modelo
+modelo propõe
+   -> schema
+   -> policy/autorização
+   -> idempotência
+   -> executor interno
+   -> readback/evidência
+   -> resultado ao modelo
 ```
 
-Nenhum provedor de IA recebe autoridade direta para escrever no Mercado Livre, banco crítico, cofre, GitHub ou infraestrutura.
+Nenhuma API de IA recebe autoridade direta sobre Mercado Livre, banco crítico, cofre, GitHub ou infraestrutura.
 
 ## Segurança de dados
 
-Nunca enviar aos provedores:
+Nunca enviar a provedores:
 
-- Client Secret do Mercado Livre;
-- access token ou refresh token;
+- Client Secret;
+- access token;
+- refresh token;
 - código OAuth;
 - Authorization header;
-- chave de banco/cofre;
+- chaves de banco/cofre;
 - segredo de outro provedor;
-- PII de comprador sem necessidade e política específica.
+- PII sem finalidade e política específica.
 
-Preferir contratos normalizados, dados minimizados, IDs internos e amostras sanitizadas.
+Preferir dados minimizados, contratos normalizados e IDs internos.
 
-## Registry de modelos
+## Observabilidade
 
-Os agentes usam aliases lógicos. O mapping físico fica em registry versionado, por exemplo:
-
-```text
-fast_agent             -> groq/openai-gpt-oss-120b
-deep_agent              -> zai/glm-4.7
-deep_agent_critical     -> zai/glm-5.1
-reserve_agent           -> siliconflow/qwen-approved
-long_context_specialist -> deepseek/deepseek-v4-pro
-multimodal_specialist   -> moonshot/kimi-k2.6
-```
-
-Trocar modelo exige somente alterar o registry após benchmark e CI. Não exige alterar cada agente.
-
-## Observabilidade obrigatória
-
-Cada chamada deve registrar, sem conteúdo sensível:
+Toda chamada registra sem conteúdo sensível:
 
 - correlation_id;
 - agent_id;
-- profile solicitado;
-- provider escolhido;
-- model_id resolvido;
-- motivo da rota;
+- capacidade solicitada;
+- provider/model escolhidos;
+- razão da rota;
 - latência;
-- tokens de entrada/saída;
-- cache quando informado;
-- custo estimado;
-- retries/failover;
-- tool calls propostas/executadas;
+- tokens;
+- cache;
+- custo estimado e real quando disponível;
+- retries;
+- escaladas/failover;
+- avaliação de qualidade;
 - status final.
 
-## Circuit breaker e saúde
+## Codex local
 
-Manter estado por `provider + model`:
+Codex local permanece executor principal de engenharia quando houver acesso à máquina. Não é substituído por este pool de APIs.
 
-```text
-HEALTHY
-DEGRADED
-OPEN
-RECOVERING
-DISABLED
-```
-
-Falhas de um provedor não derrubam a API interna. O roteador usa fallback aprovado e registra a mudança.
-
-## Controle de custo
-
-Todo perfil possui orçamento por tarefa. O roteador deve evitar usar modelos de maior custo quando um modelo aprovado de classe inferior atende ao critério de qualidade.
-
-GLM-5.1, Kimi K2.6 e DeepSeek V4-Pro são escaladas por capacidade, não defaults universais.
-
-## Critérios para ativar um modelo/provider
-
-Antes de entrar no pool ativo:
-
-1. API compatível/adaptador implementado;
-2. tool calling testado quando necessário;
-3. JSON/schema testado;
-4. latência medida;
-5. custo medido;
-6. contexto confirmado;
-7. política de dados revisada;
-8. testes de segredo aprovados;
-9. failover testado;
-10. benchmark mínimo por função do agente.
-
-## Política para SiliconFlow
-
-SiliconFlow é aprovado como **provedor-reserva e agregador**, não como dependência única. A disponibilidade de modelos muda com frequência; por isso os IDs físicos não ficam embutidos nos agentes. O registry deve fixar a versão aprovada e possuir teste de disponibilidade/depreciação.
-
-## Política para Codex local
-
-Codex local continua sendo o executor de engenharia quando houver acesso à máquina. As APIs descritas neste ADR servem aos agentes/runtime do Market Intelligence IA e a tarefas distribuídas; não substituem o Codex local nem o GitHub como memória operacional.
-
-## Resultado arquitetural
+## Estado arquitetural final desta revisão
 
 ```text
-API DO SISTEMA       = única e estável
-AGENTES              = independentes de fornecedor
-MODELOS              = substituíveis
-PROVEDORES            = redundantes
-SEGREDOS              = isolados
-TOOL EXECUTION        = interno e governado
-FAILOVER              = controlado
-CUSTO                 = observável
-QUALIDADE             = benchmark por função
+IA PRINCIPAL / ORQUESTRADOR     = ChatGPT / Pipo
+API INTERNA DE IA               = única e estável
+POOL DE PROVEDORES              = OpenAI + Groq + Z.AI + SiliconFlow + DeepSeek + Kimi
+RANKING FIXO                    = NÃO DEFINIDO
+SELEÇÃO                         = benchmark por agente + custo-benefício
+POLÍTICA                        = economic-first com quality floor
+MODELO CARO COMO DEFAULT        = PROIBIDO
+CONTROLE DE ORÇAMENTO           = obrigatório
+TOOL EXECUTION                  = interno e governado
+CODEX LOCAL                     = engenharia local
+GITHUB                          = memória operacional
 ```
 
-## Próxima implementação autorizada pela arquitetura
+## Próximo passo
 
-Criar o `AI Router`, adapters OpenAI-compatible, registry de modelos, health/circuit breaker, telemetria de custo/latência e testes sintéticos. Nenhuma chave real deve entrar no Git e nenhum plano pago deve ser contratado automaticamente.
+Antes de implementar prioridades definitivas, criar a **Matriz de Benchmark de IAs por Agente V1** e o esqueleto do AI Router com registry neutro.
+
+Nenhuma chave real, recarga, contratação ou gasto novo é autorizado por este ADR.
