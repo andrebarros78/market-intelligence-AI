@@ -45,7 +45,10 @@ def build_temporal_worker(
         PostgresAlertRepository(sessions),
     )
     marketplace = MarketplaceActivities(adapters, channel_events=channel_events)
-    radar_activities = RadarActivities(radar or build_default_radar())
+    radar_activities = RadarActivities(
+        radar or build_default_radar(),
+        channel_sessions=sessions,
+    )
     workflows: list[type] = [MarketIntelligenceIngestionWorkflow]
     activities: list = [
         persistence.persist_channel_event,
