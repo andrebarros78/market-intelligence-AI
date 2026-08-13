@@ -96,6 +96,8 @@ def create_app(
                 "relational_controls": True,
                 "relational_control_detector": "relational-control@1.0.0",
                 "control_group_comparison": True,
+                "operational_counterfactual": True,
+                "operational_counterfactual_detector": "operational-counterfactual@1.0.0",
                 "counterfactual": False,
                 "unexplained_residual_detector": True,
                 "unexplained_residual_detector_version": "unexplained-residual@1.0.0",
