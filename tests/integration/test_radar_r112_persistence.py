@@ -6,12 +6,17 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
+from market_intelligence.ingestion.channel import ChannelEvent
 from market_intelligence.intelligence.radar.alerts import alert_from_finding
 from market_intelligence.intelligence.radar.factory import build_default_radar
-from market_intelligence.intelligence.radar.models import RadarObservation
+from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
 from market_intelligence.persistence.models import AlertRecord, EvidenceRecord
-from market_intelligence.persistence.postgresql import PostgresAlertRepository
+from market_intelligence.persistence.postgresql import (
+    PostgresAlertRepository,
+    PostgresChannelEventRepository,
+)
+from market_intelligence.workflows.activities import RadarActivities
 
 HISTORY = [100, 101, 99, 100, 102, 98, 101, 99, 100, 100]
 
@@ -96,40 +101,51 @@ def test_channel_regime_correlation_evidence_is_persisted_and_deduplicated() -> 
         sessions = create_session_factory(db)
         observed_at = datetime.now(UTC)
         entity_id = f"R115-{uuid4().hex}"
+        operation = f"/items/{entity_id}"
         start = observed_at - timedelta(minutes=11)
-        events = []
+        channel_repo = PostgresChannelEventRepository(sessions)
         for index in range(12):
             recent = index >= 8
-            events.append(
-                {
-                    "marketplace": "mercadolivre",
-                    "direction": "inbound",
-                    "operation": f"/items/{entity_id}",
-                    "observed_at": start + timedelta(minutes=index),
-                    "status_code": 503 if recent else 200,
-                    "latency_ms": 450.0 if recent else 90.0,
-                    "attempt": 2 if recent else 1,
-                    "attributes": (
-                        {"partial_content": True, "opaque_marker": "must_not_propagate"}
-                        if recent
-                        else {}
-                    ),
-                }
+            event = ChannelEvent(
+                marketplace="mercadolivre",
+                direction="inbound",
+                operation=operation,
+                observed_at=start + timedelta(minutes=index),
+                status_code=503 if recent else 200,
+                latency_ms=450.0 if recent else 90.0,
+                attempt=2 if recent else 1,
+                correlation_id=f"{entity_id}-{index}",
+                attributes=(
+                    {"partial_content": True, "opaque_marker": "must_not_propagate"}
+                    if recent
+                    else {}
+                ),
             )
-        finding = build_default_radar().evaluate(
-            RadarObservation(
-                entity_id=entity_id,
-                observed_at=observed_at,
-                metrics={"visits": 55},
-                history={"visits": HISTORY},
-                context={"channel_events": events},
-            )
-        )
+            assert await channel_repo.append_if_new(event) is True
+
+        radar_payload = RadarObservation(
+            entity_id=entity_id,
+            observed_at=observed_at,
+            metrics={"visits": 55},
+            history={"visits": HISTORY},
+            context={
+                "marketplace": "mercadolivre",
+                "channel_operation": operation,
+            },
+        ).model_dump(mode="json")
+        finding_payload = await RadarActivities(
+            build_default_radar(), channel_sessions=sessions
+        ).evaluate(radar_payload)
         channel_result = next(
-            item for item in finding.detector_results
-            if item.detector == "channel_regime_correlation_v1"
+            item for item in finding_payload["detector_results"]
+            if item["detector"] == "channel_regime_correlation_v1"
         )
-        assert channel_result.level.value == "inference"
+        assert channel_result["level"] == "inference"
+        assert channel_result["attributes"]["correlation_status"] == "joint_regime_detected"
+        assert channel_result["attributes"]["causal_claim"] is False
+        assert "opaque_marker" not in str(channel_result["attributes"])
+
+        finding = RadarFinding.model_validate(finding_payload)
         alert = alert_from_finding(
             finding=finding,
             marketplace="mercadolivre",
