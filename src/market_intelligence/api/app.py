@@ -106,6 +106,10 @@ def create_app(
             "channel_sensor_details": {
                 "persistent": True,
                 "synthetic_only": True,
+                "regime_correlation": True,
+                "regime_correlation_detector": "channel-regime-correlation@1.0.0",
+                "business_correlation": True,
+                "causal_claim": False,
             },
             "production_workflows": {
                 "engine": "temporal",
