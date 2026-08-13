@@ -5,6 +5,7 @@ from market_intelligence.intelligence.radar.detectors import (
     RobustZScoreDetector,
     TemporalPatternDetector,
 )
+from market_intelligence.intelligence.radar.multivariate import MultivariateRelationshipDetector
 from market_intelligence.intelligence.radar.regime import RegimeChangeDetector
 from market_intelligence.intelligence.radar.service import RadarService
 
@@ -16,5 +17,6 @@ def build_default_radar() -> RadarService:
             RobustZScoreDetector(),
             TemporalPatternDetector(),
             RegimeChangeDetector(),
+            MultivariateRelationshipDetector(),
         ]
     )
