@@ -23,7 +23,7 @@ def create_app(
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
     radar = RadarService([KnownRuleDetector(), RobustZScoreDetector()])
-    app = FastAPI(title="Market Intelligence IA", version="0.7.0")
+    app = FastAPI(title="Market Intelligence IA", version="0.8.0")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -84,11 +84,14 @@ def create_app(
                 "statistical_baseline": True,
                 "vertical_synthetic_path": True,
                 "persistent_alerts": True,
+                "evidence_contract_v2": True,
+                "epistemic_classification": True,
+                "investigation_context_persistence": True,
                 "temporal": False,
                 "multivariate": False,
                 "regime_change": False,
                 "counterfactual": False,
-                "unexplained_residual": False,
+                "unexplained_residual_detector": False,
             },
             "channel_sensor": True,
             "channel_sensor_details": {
