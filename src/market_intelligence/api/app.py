@@ -22,7 +22,7 @@ def create_app(
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
     radar = build_default_radar()
-    app = FastAPI(title="Market Intelligence IA", version="0.11.0")
+    app = FastAPI(title="Market Intelligence IA", version="0.12.0")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -93,7 +93,9 @@ def create_app(
                 "multivariate_detector": "multivariate-relationship@1.0.0",
                 "regime_change": True,
                 "regime_change_detector": "regime-change@1.0.0",
-                "counterfactual": False,
+                "relational_controls": True,
+                "relational_control_detector": "relational-control@1.0.0",
+                "counterfactual": True,
                 "unexplained_residual_detector": False,
             },
             "channel_sensor": True,
