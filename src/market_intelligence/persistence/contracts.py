@@ -4,11 +4,16 @@ from datetime import datetime
 from typing import Any, Protocol
 
 from market_intelligence.core.contracts import Alert, EntityRef
+from market_intelligence.ingestion.channel import ChannelEvent
 from market_intelligence.ingestion.events import RawEvent
 
 
 class RawEventRepository(Protocol):
     async def append_if_new(self, event: RawEvent) -> bool: ...
+
+
+class ChannelEventRepository(Protocol):
+    async def append_if_new(self, event: ChannelEvent) -> bool: ...
 
 
 class EntityRepository(Protocol):
@@ -23,6 +28,7 @@ class SnapshotRepository(Protocol):
 
 class AlertRepository(Protocol):
     async def save(self, alert: Alert) -> None: ...
+    async def save_if_new(self, alert: Alert) -> bool: ...
 
 
 class OAuthStateRepository(Protocol):
