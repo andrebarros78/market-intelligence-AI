@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from market_intelligence.intelligence.radar.counterfactual import OperationalCounterfactualDetector
+from market_intelligence.intelligence.radar.factory import build_default_radar
 from market_intelligence.intelligence.radar.models import RadarObservation
 
 
@@ -92,3 +93,13 @@ def test_counterfactual_does_not_flag_target_that_moves_with_controls():
     assert OperationalCounterfactualDetector().evaluate(
         _observation(90, controls=controls)
     ) is None
+
+
+def test_default_radar_registers_operational_counterfactual():
+    finding = build_default_radar().evaluate(_observation(75))
+    result = next(
+        item for item in finding.detector_results
+        if item.detector == "operational_counterfactual_v1"
+    )
+    assert result.attributes["counterfactual_expected"] == 100.0
+    assert result.attributes["causal_claim"] is False
