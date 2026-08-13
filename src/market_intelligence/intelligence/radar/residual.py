@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from market_intelligence.core.contracts import EvidenceLevel
+from market_intelligence.intelligence.radar.factor_attribution import FactorAttributionEngine
 from market_intelligence.intelligence.radar.models import DetectorResult, RadarObservation
 from market_intelligence.intelligence.radar.time_series import find_seasonal_reference
 
@@ -26,7 +27,7 @@ class ResidualAnalysis(BaseModel):
 
 class UnexplainedResidualDetector:
     name = "unexplained_residual_v1"
-    version = "unexplained-residual@1.0.0"
+    version = "unexplained-residual@2.0.0"
 
     def __init__(
         self,
@@ -48,6 +49,7 @@ class UnexplainedResidualDetector:
         self.min_total_change_ratio = min_total_change_ratio
         self.min_residual_ratio = min_residual_ratio
         self.min_unexplained_fraction = min_unexplained_fraction
+        self.factor_engine = FactorAttributionEngine(min_history=min_history)
 
     @staticmethod
     def _score(residual_ratio: float, threshold: float, unexplained_fraction: float) -> float:
@@ -58,12 +60,37 @@ class UnexplainedResidualDetector:
 
     def _analysis(self, observation: RadarObservation) -> ResidualAnalysis | None:
         raw = observation.context.get("residual_analysis")
-        if not isinstance(raw, dict):
+        if isinstance(raw, dict):
+            try:
+                return ResidualAnalysis.model_validate(raw)
+            except ValidationError:
+                return None
+
+        attribution = self.factor_engine.analyze(observation)
+        if attribution is None:
             return None
-        try:
-            return ResidualAnalysis.model_validate(raw)
-        except ValidationError:
-            return None
+
+        return ResidualAnalysis(
+            metric=attribution.metric,
+            expected=attribution.expected,
+            observable_effects=[
+                ObservableEffect(
+                    name=factor.name,
+                    contribution=factor.contribution,
+                    source=factor.source,
+                    attributes={
+                        "association": factor.association,
+                        "slope": factor.slope,
+                        "factor_attribution_version": attribution.version,
+                    },
+                )
+                for factor in attribution.factors
+            ],
+            attributes={
+                "automatic_factor_attribution": True,
+                "factor_attribution": attribution.model_dump(mode="json"),
+            },
+        )
 
     def _expected(
         self, observation: RadarObservation, analysis: ResidualAnalysis

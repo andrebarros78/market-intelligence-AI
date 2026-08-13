@@ -53,7 +53,7 @@ def test_detects_material_unexplained_residual() -> None:
     assert result.attributes["unexplained_fraction"] == 0.875
     assert result.attributes["observable_causes"] == ["seasonality", "competition"]
     assert result.attributes["cause_status"] == "unknown_not_inferred"
-    assert result.attributes["detector_version"] == "unexplained-residual@1.0.0"
+    assert result.attributes["detector_version"] == "unexplained-residual@2.0.0"
 
 
 def test_does_not_alert_when_observable_effects_explain_change() -> None:
@@ -121,7 +121,7 @@ def test_default_radar_and_alert_contract_propagate_residual_evidence() -> None:
     assert alert is not None
     assert alert.unexplained_residual == -35.0
     assert alert.observable_causes == ["seasonality", "competition"]
-    assert "unexplained-residual@1.0.0" in (alert.detector_version or "")
+    assert "unexplained-residual@2.0.0" in (alert.detector_version or "")
     assert alert.evidence_classification in {EvidenceLevel.INFERENCE, EvidenceLevel.HYPOTHESIS}
 
 
