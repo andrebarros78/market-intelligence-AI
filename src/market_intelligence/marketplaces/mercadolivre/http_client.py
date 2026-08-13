@@ -7,12 +7,37 @@ from typing import Any, Mapping
 import httpx
 from pydantic import SecretStr
 
+from market_intelligence.ingestion.events import RawEvent
 from market_intelligence.marketplaces.base import MarketplaceAdapter
 from market_intelligence.marketplaces.mercadolivre.channel_sensor import (
     ChannelTelemetry,
     build_channel_telemetry,
 )
 from market_intelligence.marketplaces.mercadolivre.schema import schema_fingerprint
+
+_CREDENTIAL_FIELDS = {
+    "authorization",
+    "access_token",
+    "refresh_token",
+    "client_secret",
+}
+
+
+def _sanitize_credential_echo(value: Any, *, token: str) -> Any:
+    if isinstance(value, dict):
+        clean: dict[str, Any] = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if lowered in _CREDENTIAL_FIELDS or lowered.endswith(("_token", "_secret")):
+                clean[key] = "[REDACTED]"
+            else:
+                clean[key] = _sanitize_credential_echo(item, token=token)
+        return clean
+    if isinstance(value, list):
+        return [_sanitize_credential_echo(item, token=token) for item in value]
+    if isinstance(value, str) and value == token:
+        return "[REDACTED]"
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,9 +95,14 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
                 base_url=self.base_url,
                 transport=transport,
                 timeout=timeout_seconds,
+                follow_redirects=False,
             )
         elif network_allowed:
-            self._client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout_seconds)
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=timeout_seconds,
+                follow_redirects=False,
+            )
 
     async def aclose(self) -> None:
         if self._client is not None:
@@ -85,10 +115,10 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
             raise MercadoLivreReadError("mercadolivre_network_blocked", retryable=False)
         return self._client
 
-    def _authorization_headers(self) -> dict[str, str]:
+    def _token_value(self) -> str:
         if self._token is None:
             raise MercadoLivreReadError("mercadolivre_credential_missing", retryable=False)
-        return {"Authorization": f"Bearer {self._token.get_secret_value()}"}
+        return self._token.get_secret_value()
 
     async def _read(
         self,
@@ -101,7 +131,8 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
         if not path.startswith("/") or path.startswith("//"):
             raise MercadoLivreReadError("mercadolivre_invalid_resource_path", retryable=False)
         client = self._require_transport()
-        request_headers = self._authorization_headers()
+        token = self._token_value()
+        request_headers = {"Authorization": f"Bearer {token}"}
         request_headers.update(dict(headers or {}))
         started = monotonic()
         try:
@@ -143,7 +174,7 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
                 retryable=True,
                 telemetry=telemetry,
             )
-        if response.status_code >= 400:
+        if response.status_code >= 300:
             raise MercadoLivreReadError(
                 "mercadolivre_request_rejected",
                 status_code=response.status_code,
@@ -166,14 +197,15 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
                 retryable=False,
                 telemetry=telemetry,
             )
+        safe_payload = _sanitize_credential_echo(payload, token=token)
         missing_header = telemetry.operational_headers.get("x-content-missing", "")
         missing_fields = tuple(
             item.strip() for item in missing_header.split(",") if item.strip()
         )
         return MercadoLivreReadResult(
-            payload=payload,
+            payload=safe_payload,
             telemetry=telemetry,
-            schema_fingerprint=schema_fingerprint(payload),
+            schema_fingerprint=schema_fingerprint(safe_payload),
             missing_fields=missing_fields,
         )
 
@@ -214,5 +246,5 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
     async def fetch_resource(self, resource: str) -> dict[str, Any]:
         return (await self._read(resource)).payload
 
-    def normalize_notification(self, payload: dict[str, Any]) -> Any:
+    def normalize_notification(self, payload: dict[str, Any]) -> RawEvent:
         raise NotImplementedError("notification normalization belongs to ingestion")
