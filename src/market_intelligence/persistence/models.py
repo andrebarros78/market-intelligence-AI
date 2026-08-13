@@ -9,6 +9,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     String,
     Text,
@@ -43,6 +44,28 @@ class RawEventRecord(Base):
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     dedupe_key: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ChannelEventRecord(Base):
+    __tablename__ = "channel_events"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_channel_events_dedupe_key"),
+        Index("ix_channel_events_marketplace_observed", "marketplace", "observed_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    marketplace: Mapped[str] = mapped_column(String(64), nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    operation: Mapped[str] = mapped_column(String(160), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    correlation_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    dedupe_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    attributes: Mapped[dict] = mapped_column(JsonType, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -85,6 +108,7 @@ class AlertRecord(Base):
     __tablename__ = "alerts"
     __table_args__ = (
         CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_alerts_confidence"),
+        UniqueConstraint("dedupe_key", name="uq_alerts_dedupe_key"),
         Index("ix_alerts_state_severity", "state", "severity"),
     )
 
@@ -92,6 +116,7 @@ class AlertRecord(Base):
     marketplace: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    dedupe_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     observed_change: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str] = mapped_column(String(32), nullable=False)
     estimated_impact: Mapped[float | None] = mapped_column(Float, nullable=True)
