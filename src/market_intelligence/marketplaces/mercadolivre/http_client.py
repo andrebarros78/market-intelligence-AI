@@ -7,8 +7,13 @@ from typing import Any, Mapping
 import httpx
 from pydantic import SecretStr
 
+from market_intelligence.ingestion.channel import ChannelEvent
 from market_intelligence.ingestion.events import RawEvent
-from market_intelligence.marketplaces.base import MarketplaceAdapter, MarketplaceReadError
+from market_intelligence.marketplaces.base import (
+    MarketplaceAdapter,
+    MarketplaceFetchResult,
+    MarketplaceReadError,
+)
 from market_intelligence.marketplaces.mercadolivre.channel_sensor import (
     ChannelTelemetry,
     build_channel_telemetry,
@@ -40,6 +45,26 @@ def _sanitize_credential_echo(value: Any, *, token: str) -> Any:
     return value
 
 
+def _channel_event(telemetry: ChannelTelemetry) -> ChannelEvent:
+    attributes: dict[str, Any] = {
+        "partial_content": telemetry.partial_content,
+        "operational_headers": telemetry.operational_headers,
+    }
+    if telemetry.retry_after is not None:
+        attributes["retry_after"] = telemetry.retry_after
+    return ChannelEvent(
+        marketplace="mercadolivre",
+        direction="outbound",
+        operation=telemetry.endpoint,
+        observed_at=telemetry.observed_at,
+        status_code=telemetry.status_code,
+        latency_ms=telemetry.latency_ms,
+        attempt=telemetry.attempts,
+        request_id=telemetry.request_id,
+        attributes=attributes,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class MercadoLivreReadResult:
     payload: dict[str, Any]
@@ -62,7 +87,12 @@ class MercadoLivreReadError(MarketplaceReadError):
         retry_after: str | None = None,
         telemetry: ChannelTelemetry | None = None,
     ) -> None:
-        super().__init__(code, status_code=status_code, retryable=retryable)
+        super().__init__(
+            code,
+            status_code=status_code,
+            retryable=retryable,
+            channel_event=_channel_event(telemetry) if telemetry is not None else None,
+        )
         self.retry_after = retry_after
         self.telemetry = telemetry
 
@@ -240,8 +270,17 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
     async def get_visits(self, item_id: str) -> dict[str, Any]:
         return (await self.read_visits(item_id)).payload
 
+    async def fetch_resource_observed(
+        self, resource: str, *, attempt: int = 1
+    ) -> MarketplaceFetchResult:
+        result = await self._read(resource, attempt=attempt)
+        return MarketplaceFetchResult(
+            payload=result.payload,
+            channel_event=_channel_event(result.telemetry),
+        )
+
     async def fetch_resource(self, resource: str) -> dict[str, Any]:
-        return (await self._read(resource)).payload
+        return (await self.fetch_resource_observed(resource)).payload
 
     def normalize_notification(self, payload: dict[str, Any]) -> RawEvent:
         raise NotImplementedError("notification normalization belongs to ingestion")
