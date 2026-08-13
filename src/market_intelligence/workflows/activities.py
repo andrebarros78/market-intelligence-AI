@@ -13,7 +13,11 @@ from market_intelligence.ingestion.events import RawEvent
 from market_intelligence.intelligence.radar.alerts import alert_from_finding
 from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
 from market_intelligence.intelligence.radar.service import RadarService
-from market_intelligence.marketplaces.base import MarketplaceAdapter, MarketplaceReadError
+from market_intelligence.marketplaces.base import (
+    MarketplaceAdapter,
+    MarketplaceFetchResult,
+    MarketplaceReadError,
+)
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
 from market_intelligence.persistence.contracts import (
     AlertRepository,
@@ -32,6 +36,13 @@ from market_intelligence.workflows.names import (
     ACTIVITY_PERSIST_RESOURCE,
 )
 from market_intelligence.workflows.oauth_safety import validate_safe_oauth_temporal_payload
+
+
+def _current_activity_attempt() -> int:
+    try:
+        return max(1, int(activity.info().attempt))
+    except RuntimeError:
+        return 1
 
 
 class PersistenceActivities:
@@ -105,8 +116,18 @@ class PersistenceActivities:
 
 
 class MarketplaceActivities:
-    def __init__(self, adapters: Mapping[str, MarketplaceAdapter]) -> None:
+    def __init__(
+        self,
+        adapters: Mapping[str, MarketplaceAdapter],
+        *,
+        channel_events: ChannelEventRepository | None = None,
+    ) -> None:
         self._adapters = dict(adapters)
+        self._channel_events = channel_events
+
+    async def _persist_channel_event(self, event: ChannelEvent | None) -> None:
+        if event is not None and self._channel_events is not None:
+            await self._channel_events.append_if_new(event)
 
     @activity.defn(name=ACTIVITY_FETCH_RESOURCE)
     async def fetch_resource(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -118,8 +139,23 @@ class MarketplaceActivities:
         if not resource:
             raise ApplicationError("resource is required", non_retryable=True)
         try:
-            result = await adapter.fetch_resource(resource)
+            observed_reader = getattr(adapter, "fetch_resource_observed", None)
+            if callable(observed_reader):
+                observed = await observed_reader(
+                    resource,
+                    attempt=_current_activity_attempt(),
+                )
+                if not isinstance(observed, MarketplaceFetchResult):
+                    raise ApplicationError(
+                        "marketplace observed response must use MarketplaceFetchResult",
+                        non_retryable=True,
+                    )
+                await self._persist_channel_event(observed.channel_event)
+                result = observed.payload
+            else:
+                result = await adapter.fetch_resource(resource)
         except MarketplaceReadError as exc:
+            await self._persist_channel_event(exc.channel_event)
             raise ApplicationError(exc.code, non_retryable=not exc.retryable) from exc
         if not isinstance(result, dict):
             raise ApplicationError("marketplace resource response must be an object", non_retryable=True)
