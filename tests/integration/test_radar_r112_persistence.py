@@ -10,7 +10,7 @@ from market_intelligence.intelligence.radar.alerts import alert_from_finding
 from market_intelligence.intelligence.radar.factory import build_default_radar
 from market_intelligence.intelligence.radar.models import RadarObservation
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
-from market_intelligence.persistence.models import AlertRecord
+from market_intelligence.persistence.models import AlertRecord, EvidenceRecord
 from market_intelligence.persistence.postgresql import PostgresAlertRepository
 
 HISTORY = [100, 101, 99, 100, 102, 98, 101, 99, 100, 100]
@@ -39,7 +39,7 @@ def test_automatic_control_comparison_is_persisted_and_deduplicated() -> None:
             RadarObservation(
                 entity_id=entity_id,
                 observed_at=observed_at,
-                metrics={"visits": 94},
+                metrics={"visits": 75},
                 history={"visits": HISTORY},
                 context={"control_candidates": candidates},
             )
@@ -62,10 +62,23 @@ def test_automatic_control_comparison_is_persisted_and_deduplicated() -> None:
                         select(AlertRecord).where(AlertRecord.entity_id == entity_id)
                     )
                 ).scalar_one()
+                counterfactual_evidence = (
+                    await session.execute(
+                        select(EvidenceRecord).where(
+                            EvidenceRecord.entity_id == entity_id,
+                            EvidenceRecord.source == "radar:operational_counterfactual_v1",
+                        )
+                    )
+                ).scalar_one()
             assert "relational-control@2.0.0" in (row.detector_version or "")
+            assert "operational-counterfactual@1.0.0" in (row.detector_version or "")
             assert row.control_comparison is not None
             assert row.control_comparison["selection"]["mode"] == "automatic"
             assert row.control_comparison["selection"]["selection_uses_current_values"] is False
+            assert counterfactual_evidence.level == "inference"
+            assert counterfactual_evidence.attributes["counterfactual_kind"] == "operational_not_causal"
+            assert counterfactual_evidence.attributes["causal_claim"] is False
+            assert counterfactual_evidence.attributes["fit_uses_current_target"] is False
         finally:
             await db.dispose()
 
