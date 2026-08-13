@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from market_intelligence.core.contracts import EvidenceLevel
 from market_intelligence.intelligence.radar.models import DetectorResult, RadarObservation
+from market_intelligence.intelligence.radar.time_series import find_seasonal_reference
 
 
 class ObservableEffect(BaseModel):
@@ -69,6 +70,9 @@ class UnexplainedResidualDetector:
     ) -> tuple[float, str] | None:
         if analysis.expected is not None:
             return analysis.expected, "explicit_expected"
+        seasonal = find_seasonal_reference(observation, analysis.metric)
+        if seasonal is not None:
+            return seasonal.expected, f"seasonal:{seasonal.period}"
         history = observation.history.get(analysis.metric, [])
         if len(history) < self.min_history:
             return None
