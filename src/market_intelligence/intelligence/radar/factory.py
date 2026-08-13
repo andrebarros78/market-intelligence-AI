@@ -7,6 +7,7 @@ from market_intelligence.intelligence.radar.detectors import (
 )
 from market_intelligence.intelligence.radar.multivariate import MultivariateRelationshipDetector
 from market_intelligence.intelligence.radar.regime import RegimeChangeDetector
+from market_intelligence.intelligence.radar.relational import RelationalControlDetector
 from market_intelligence.intelligence.radar.service import RadarService
 
 
@@ -18,5 +19,6 @@ def build_default_radar() -> RadarService:
             TemporalPatternDetector(),
             RegimeChangeDetector(),
             MultivariateRelationshipDetector(),
+            RelationalControlDetector(),
         ]
     )
