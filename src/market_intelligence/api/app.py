@@ -7,7 +7,11 @@ from fastapi import FastAPI
 from market_intelligence.api.ingestion import build_synthetic_ingestion_router
 from market_intelligence.api.oauth import build_synthetic_oauth_router
 from market_intelligence.core.config import Settings
-from market_intelligence.intelligence.radar.detectors import KnownRuleDetector, RobustZScoreDetector
+from market_intelligence.intelligence.radar.detectors import (
+    KnownRuleDetector,
+    RobustZScoreDetector,
+    TemporalPatternDetector,
+)
 from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
 from market_intelligence.intelligence.radar.service import RadarService
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
@@ -22,8 +26,8 @@ def create_app(
     ingestion_engine: WorkflowEngine | None = None,
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
-    radar = RadarService([KnownRuleDetector(), RobustZScoreDetector()])
-    app = FastAPI(title="Market Intelligence IA", version="0.8.0")
+    radar = RadarService([KnownRuleDetector(), RobustZScoreDetector(), TemporalPatternDetector()])
+    app = FastAPI(title="Market Intelligence IA", version="0.9.0")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -87,7 +91,9 @@ def create_app(
                 "evidence_contract_v2": True,
                 "epistemic_classification": True,
                 "investigation_context_persistence": True,
-                "temporal": False,
+                "temporal": True,
+                "temporal_detector": "temporal-pattern@1.0.0",
+                "seasonality": False,
                 "multivariate": False,
                 "regime_change": False,
                 "counterfactual": False,
