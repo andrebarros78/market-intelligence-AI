@@ -13,7 +13,7 @@ from market_intelligence.ingestion.events import RawEvent
 from market_intelligence.intelligence.radar.alerts import alert_from_finding
 from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
 from market_intelligence.intelligence.radar.service import RadarService
-from market_intelligence.marketplaces.base import MarketplaceAdapter
+from market_intelligence.marketplaces.base import MarketplaceAdapter, MarketplaceReadError
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
 from market_intelligence.persistence.contracts import (
     AlertRepository,
@@ -117,7 +117,10 @@ class MarketplaceActivities:
             raise ApplicationError(f"marketplace adapter not registered: {marketplace}", non_retryable=True)
         if not resource:
             raise ApplicationError("resource is required", non_retryable=True)
-        result = await adapter.fetch_resource(resource)
+        try:
+            result = await adapter.fetch_resource(resource)
+        except MarketplaceReadError as exc:
+            raise ApplicationError(exc.code, non_retryable=not exc.retryable) from exc
         if not isinstance(result, dict):
             raise ApplicationError("marketplace resource response must be an object", non_retryable=True)
         return result
