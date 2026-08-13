@@ -17,6 +17,20 @@ def _severity(score: float) -> Severity:
     return Severity.LOW
 
 
+def _datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        return datetime.fromisoformat(value)
+    return None
+
+
+def _strings(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
 def alert_from_finding(
     *,
     finding: RadarFinding,
@@ -43,9 +57,12 @@ def alert_from_finding(
     estimated_impact = details.get("estimated_impact")
     if estimated_impact is not None:
         estimated_impact = float(estimated_impact)
-    deadline = details.get("deadline")
-    if isinstance(deadline, str):
-        deadline = datetime.fromisoformat(deadline)
+    unexplained_residual = details.get("unexplained_residual")
+    if unexplained_residual is not None:
+        unexplained_residual = float(unexplained_residual)
+    control = details.get("control_comparison")
+    if control is not None and not isinstance(control, dict):
+        control = {"summary": str(control)}
     return Alert(
         entity=EntityRef(
             marketplace=marketplace,
@@ -57,9 +74,16 @@ def alert_from_finding(
         severity=_severity(finding.score),
         estimated_impact=estimated_impact,
         confidence=finding.score,
+        observable_causes=_strings(details.get("observable_causes")),
+        unexplained_residual=unexplained_residual,
+        hypotheses=_strings(details.get("hypotheses")),
+        control_comparison=control,
         recommended_action=(str(details["recommended_action"])
                             if details.get("recommended_action") else None),
         responsible=(str(details["responsible"])
                      if details.get("responsible") else None),
-        deadline=deadline if isinstance(deadline, datetime) else None,
+        deadline=_datetime(details.get("deadline")),
+        first_observed_at=_datetime(details.get("first_observed_at")) or observed_at,
+        last_observed_at=_datetime(details.get("last_observed_at")) or observed_at,
+        detector_version=str(details.get("detector_version") or "radar-core-v1"),
     )
