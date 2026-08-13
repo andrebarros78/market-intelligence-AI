@@ -6,11 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from market_intelligence.intelligence.radar.detectors import (
-    KnownRuleDetector,
-    RobustZScoreDetector,
-    TemporalPatternDetector,
-)
+from market_intelligence.intelligence.radar.factory import build_default_radar
 from market_intelligence.intelligence.radar.service import RadarService
 from market_intelligence.marketplaces.base import MarketplaceAdapter
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
@@ -49,12 +45,7 @@ def build_temporal_worker(
         PostgresAlertRepository(sessions),
     )
     marketplace = MarketplaceActivities(adapters, channel_events=channel_events)
-    radar_activities = RadarActivities(
-        radar
-        or RadarService(
-            [KnownRuleDetector(), RobustZScoreDetector(), TemporalPatternDetector()]
-        )
-    )
+    radar_activities = RadarActivities(radar or build_default_radar())
     workflows: list[type] = [MarketIntelligenceIngestionWorkflow]
     activities: list = [
         persistence.persist_channel_event,
