@@ -344,11 +344,11 @@ class TemporalPatternDetector:
                 self._abrupt_break(metric, series),
                 self._isolated_spike(metric, history, current),
             )
-            for candidate in candidates:
-                if candidate is None:
-                    continue
-                if best is None or (candidate.score, candidate.magnitude) > (best.score, best.magnitude):
-                    best = candidate
+            primary = next((candidate for candidate in candidates if candidate is not None), None)
+            if primary is None:
+                continue
+            if best is None or (primary.score, primary.magnitude) > (best.score, best.magnitude):
+                best = primary
 
         if best is None:
             return None
