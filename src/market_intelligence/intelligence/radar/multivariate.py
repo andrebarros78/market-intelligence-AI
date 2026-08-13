@@ -19,7 +19,11 @@ def _scale(values: list[float], *, floor_ratio: float = 0.02) -> float:
     if not values:
         return 1.0
     center = statistics.median(values)
-    step = statistics.median(abs(r - l) for l, r in zip(values, values[1:])) if len(values) > 1 else 0.0
+    step = (
+        statistics.median(abs(right - left) for left, right in zip(values, values[1:]))
+        if len(values) > 1
+        else 0.0
+    )
     floor = max(abs(center) * floor_ratio, 1e-9)
     return max(_mad(values), step, floor)
 
@@ -83,6 +87,13 @@ class MultivariateRelationshipDetector:
         excess = (signal - threshold) / max(threshold, 1e-9)
         return min(1.0, 0.60 + 0.40 * max(0.0, excess))
 
+    def _within_historical_domain(
+        self, value: float, history: list[float], scale: float
+    ) -> bool:
+        lower = min(history) - self.max_extrapolation_scale * scale
+        upper = max(history) + self.max_extrapolation_scale * scale
+        return lower <= value <= upper
+
     def _directed_relationship(
         self,
         *,
@@ -116,9 +127,9 @@ class MultivariateRelationshipDetector:
         fit_quality = max(0.0, 1.0 - residual_scale / y_scale)
         if fit_quality < self.min_fit_quality:
             return None
-        lower = min(x_values) - self.max_extrapolation_scale * x_scale
-        upper = max(x_values) + self.max_extrapolation_scale * x_scale
-        if not lower <= x_current <= upper:
+        if not self._within_historical_domain(x_current, x_values, x_scale):
+            return None
+        if not self._within_historical_domain(y_current, y_values, y_scale):
             return None
         expected = intercept + slope * x_current + residual_center
         residual = y_current - expected
@@ -152,7 +163,8 @@ class MultivariateRelationshipDetector:
 
     def evaluate(self, observation: RadarObservation) -> DetectorResult | None:
         metrics = sorted(
-            metric for metric in observation.metrics
+            metric
+            for metric in observation.metrics
             if len(observation.history.get(metric, [])) >= self.min_history
         )
         if len(metrics) < 2:
@@ -163,20 +175,29 @@ class MultivariateRelationshipDetector:
             second_history = observation.history.get(second, [])
             candidates = (
                 self._directed_relationship(
-                    x_metric=first, y_metric=second,
-                    x_history=first_history, y_history=second_history,
-                    x_current=observation.metrics[first], y_current=observation.metrics[second],
+                    x_metric=first,
+                    y_metric=second,
+                    x_history=first_history,
+                    y_history=second_history,
+                    x_current=observation.metrics[first],
+                    y_current=observation.metrics[second],
                 ),
                 self._directed_relationship(
-                    x_metric=second, y_metric=first,
-                    x_history=second_history, y_history=first_history,
-                    x_current=observation.metrics[second], y_current=observation.metrics[first],
+                    x_metric=second,
+                    y_metric=first,
+                    x_history=second_history,
+                    y_history=first_history,
+                    x_current=observation.metrics[second],
+                    y_current=observation.metrics[first],
                 ),
             )
             for candidate in candidates:
                 if candidate is None:
                     continue
-                if best is None or (candidate.score, candidate.magnitude) > (best.score, best.magnitude):
+                if best is None or (candidate.score, candidate.magnitude) > (
+                    best.score,
+                    best.magnitude,
+                ):
                     best = candidate
         if best is None:
             return None
@@ -184,6 +205,9 @@ class MultivariateRelationshipDetector:
             detector=self.name,
             score=best.score,
             level=EvidenceLevel.FACT,
-            summary=f"Observed multivariate relationship break between {best.x_metric} and {best.y_metric}",
+            summary=(
+                "Observed multivariate relationship break between "
+                f"{best.x_metric} and {best.y_metric}"
+            ),
             attributes=best.attributes,
         )
