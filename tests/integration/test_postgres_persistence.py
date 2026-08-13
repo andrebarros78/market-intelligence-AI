@@ -10,11 +10,13 @@ import pytest
 from sqlalchemy import func, select
 
 from market_intelligence.core.contracts import Alert, EntityRef, Evidence, EvidenceLevel, Severity
+from market_intelligence.ingestion.channel import ChannelEvent
 from market_intelligence.ingestion.events import build_raw_event
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
-from market_intelligence.persistence.models import AlertRecord, EvidenceRecord
+from market_intelligence.persistence.models import AlertRecord, ChannelEventRecord, EvidenceRecord
 from market_intelligence.persistence.postgresql import (
     PostgresAlertRepository,
+    PostgresChannelEventRepository,
     PostgresEntityRepository,
     PostgresOAuthStateRepository,
     PostgresRawEventRepository,
@@ -53,6 +55,33 @@ def test_postgres_repositories_and_atomic_oauth_consumption() -> None:
             )
             assert await raw_repo.append_if_new(event) is True
             assert await raw_repo.append_if_new(event) is False
+
+            channel_repo = PostgresChannelEventRepository(sessions)
+            channel_event = ChannelEvent(
+                marketplace="mercadolivre",
+                direction="inbound",
+                operation=f"/items/{entity.entity_id}",
+                observed_at=now,
+                status_code=206,
+                latency_ms=125.0,
+                attempt=1,
+                correlation_id=f"corr-{suffix}",
+                request_id=f"req-{suffix}",
+                attributes={"partial_content": True, "missing_fields": ["seller"]},
+            )
+            assert await channel_repo.append_if_new(channel_event) is True
+            assert await channel_repo.append_if_new(channel_event) is False
+            async with sessions() as session:
+                channel_rows = (
+                    await session.execute(
+                        select(ChannelEventRecord).where(
+                            ChannelEventRecord.correlation_id == f"corr-{suffix}"
+                        )
+                    )
+                ).scalars().all()
+            assert len(channel_rows) == 1
+            assert channel_rows[0].status_code == 206
+            assert channel_rows[0].attributes["partial_content"] is True
 
             entity_repo = PostgresEntityRepository(sessions)
             await entity_repo.upsert(entity, {"status": "active"}, now)
