@@ -184,14 +184,24 @@ class PostgresAlertRepository:
                 entity_id=alert.entity.entity_id,
                 dedupe_key=dedupe_key,
                 observed_change=alert.observed_change,
+                evidence_classification=(
+                    alert.evidence_classification.value if alert.evidence_classification else None
+                ),
                 severity=alert.severity.value,
                 estimated_impact=alert.estimated_impact,
                 confidence=alert.confidence,
+                observable_causes=alert.observable_causes,
+                unexplained_residual=alert.unexplained_residual,
+                hypotheses=alert.hypotheses,
+                control_comparison=alert.control_comparison,
                 recommended_action=alert.recommended_action,
                 responsible=alert.responsible,
                 deadline=alert.deadline,
                 state=alert.state.value,
                 outcome=alert.outcome,
+                first_observed_at=alert.first_observed_at,
+                last_observed_at=alert.last_observed_at,
+                detector_version=alert.detector_version,
             )
             .on_conflict_do_nothing(constraint="uq_alerts_dedupe_key")
             .returning(AlertRecord.id)
