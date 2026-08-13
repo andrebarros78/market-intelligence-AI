@@ -23,7 +23,7 @@ def create_app(
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
     radar = RadarService([KnownRuleDetector(), RobustZScoreDetector()])
-    app = FastAPI(title="Market Intelligence IA", version="0.6.0")
+    app = FastAPI(title="Market Intelligence IA", version="0.7.0")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -47,6 +47,16 @@ def create_app(
     def capabilities() -> dict[str, object]:
         return {
             "marketplaces": ["mercadolivre"],
+            "mercadolivre_read_adapter": {
+                "implemented": True,
+                "default_network_mode": "blocked",
+                "synthetic_transport": True,
+                "capability_auditor": True,
+                "schema_fingerprint": True,
+                "partial_content_206": True,
+                "rate_limit_429": True,
+                "real_network_enabled": False,
+            },
             "persistence": {
                 "postgresql_schema": True,
                 "alembic_migrations": True,
