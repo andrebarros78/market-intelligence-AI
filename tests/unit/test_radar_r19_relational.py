@@ -26,7 +26,7 @@ def test_relational_detects_target_specific_divergence() -> None:
     assert result.level.value == "fact"
     assert result.attributes["pattern"] == "control_group_divergence"
     assert result.attributes["cause_status"] == "unknown_not_inferred"
-    assert result.attributes["detector_version"] == "relational-control@1.0.0"
+    assert result.attributes["detector_version"] == "relational-control@2.0.0"
     comparison = result.attributes["control_comparison"]
     assert comparison["metric"] == "visits"
     assert comparison["control_count"] == 3
@@ -68,4 +68,4 @@ async def test_temporal_radar_activity_uses_same_relational_detector() -> None:
     observation = _observation(94, [_control("C1", 100), _control("C2", 101), _control("C3", 99)])
     result = await RadarActivities(build_default_radar()).evaluate(observation.model_dump(mode="json"))
     detectors = {item["detector"]: item for item in result["detector_results"]}
-    assert detectors["relational_control_v1"]["attributes"]["detector_version"] == "relational-control@1.0.0"
+    assert detectors["relational_control_v1"]["attributes"]["detector_version"] == "relational-control@2.0.0"
