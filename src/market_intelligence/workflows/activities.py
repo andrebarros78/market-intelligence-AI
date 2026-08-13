@@ -183,17 +183,20 @@ class RadarActivities:
     ) -> RadarObservation:
         if self._channel_sessions is None or "channel_events" in observation.context:
             return observation
-        marketplace = str(observation.context.get("marketplace") or "mercadolivre")
         operation_value = observation.context.get("channel_operation")
-        operation = str(operation_value) if operation_value else None
-        statement = select(ChannelEventRecord).where(
-            ChannelEventRecord.marketplace == marketplace,
-            ChannelEventRecord.observed_at <= observation.observed_at,
-        )
-        if operation:
-            statement = statement.where(ChannelEventRecord.operation == operation)
-        statement = statement.order_by(ChannelEventRecord.observed_at.desc()).limit(
-            self._channel_history_limit
+        if not operation_value:
+            return observation
+        marketplace = str(observation.context.get("marketplace") or "mercadolivre")
+        operation = str(operation_value)
+        statement = (
+            select(ChannelEventRecord)
+            .where(
+                ChannelEventRecord.marketplace == marketplace,
+                ChannelEventRecord.operation == operation,
+                ChannelEventRecord.observed_at <= observation.observed_at,
+            )
+            .order_by(ChannelEventRecord.observed_at.desc())
+            .limit(self._channel_history_limit)
         )
         async with self._channel_sessions() as session:
             rows = list((await session.execute(statement)).scalars())
@@ -226,9 +229,9 @@ class RadarActivities:
     async def evaluate(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             observation = RadarObservation.model_validate(payload)
-            observation = await self._with_persisted_channel_history(observation)
         except Exception as exc:
             raise ApplicationError("invalid radar observation", non_retryable=True) from exc
+        observation = await self._with_persisted_channel_history(observation)
         return self._radar.evaluate(observation).model_dump(mode="json")
 
 
