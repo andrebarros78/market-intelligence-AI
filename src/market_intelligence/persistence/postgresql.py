@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,15 +10,23 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from market_intelligence.core.contracts import Alert, EntityRef
+from market_intelligence.ingestion.channel import ChannelEvent
 from market_intelligence.ingestion.events import RawEvent, canonical_payload_hash
+from market_intelligence.marketplaces.mercadolivre.oauth.sanitize import sanitize_mapping
 from market_intelligence.persistence.models import (
     AlertRecord,
+    ChannelEventRecord,
     EntityRecord,
     EvidenceRecord,
     OAuthStateRecord,
     RawEventRecord,
     SnapshotRecord,
 )
+
+
+def _stable_hash(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def raw_event_dedupe_key(event: RawEvent) -> str:
@@ -31,6 +40,16 @@ def raw_event_dedupe_key(event: RawEvent) -> str:
             [event.source, event.event_type, event.resource or "", occurred, event.payload_hash]
         ).encode("utf-8")
     return hashlib.sha256(material).hexdigest()
+
+
+def channel_event_dedupe_key(event: ChannelEvent) -> str:
+    safe = event.model_dump(mode="json")
+    safe["attributes"] = sanitize_mapping(safe.get("attributes") or {})
+    return _stable_hash(safe)
+
+
+def alert_dedupe_key(alert: Alert) -> str:
+    return _stable_hash(alert.model_dump(mode="json"))
 
 
 class PostgresRawEventRepository:
@@ -57,6 +76,34 @@ class PostgresRawEventRepository:
         async with self._sessions() as session, session.begin():
             result = await session.execute(statement)
             return result.scalar_one_or_none() is not None
+
+
+class PostgresChannelEventRepository:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = sessions
+
+    async def append_if_new(self, event: ChannelEvent) -> bool:
+        attributes = sanitize_mapping(event.attributes)
+        statement = (
+            pg_insert(ChannelEventRecord)
+            .values(
+                marketplace=event.marketplace,
+                direction=event.direction,
+                operation=event.operation,
+                observed_at=event.observed_at,
+                status_code=event.status_code,
+                latency_ms=event.latency_ms,
+                attempt=event.attempt,
+                correlation_id=event.correlation_id,
+                request_id=event.request_id,
+                dedupe_key=channel_event_dedupe_key(event),
+                attributes=attributes,
+            )
+            .on_conflict_do_nothing(constraint="uq_channel_events_dedupe_key")
+            .returning(ChannelEventRecord.id)
+        )
+        async with self._sessions() as session, session.begin():
+            return (await session.execute(statement)).scalar_one_or_none() is not None
 
 
 class PostgresEntityRepository:
@@ -127,28 +174,36 @@ class PostgresAlertRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
 
-    async def save(self, alert: Alert) -> None:
-        alert_record = AlertRecord(
-            marketplace=alert.entity.marketplace,
-            entity_type=alert.entity.entity_type,
-            entity_id=alert.entity.entity_id,
-            observed_change=alert.observed_change,
-            severity=alert.severity.value,
-            estimated_impact=alert.estimated_impact,
-            confidence=alert.confidence,
-            recommended_action=alert.recommended_action,
-            responsible=alert.responsible,
-            deadline=alert.deadline,
-            state=alert.state.value,
-            outcome=alert.outcome,
+    async def save_if_new(self, alert: Alert) -> bool:
+        dedupe_key = alert_dedupe_key(alert)
+        statement = (
+            pg_insert(AlertRecord)
+            .values(
+                marketplace=alert.entity.marketplace,
+                entity_type=alert.entity.entity_type,
+                entity_id=alert.entity.entity_id,
+                dedupe_key=dedupe_key,
+                observed_change=alert.observed_change,
+                severity=alert.severity.value,
+                estimated_impact=alert.estimated_impact,
+                confidence=alert.confidence,
+                recommended_action=alert.recommended_action,
+                responsible=alert.responsible,
+                deadline=alert.deadline,
+                state=alert.state.value,
+                outcome=alert.outcome,
+            )
+            .on_conflict_do_nothing(constraint="uq_alerts_dedupe_key")
+            .returning(AlertRecord.id)
         )
         async with self._sessions() as session, session.begin():
-            session.add(alert_record)
-            await session.flush()
+            alert_id = (await session.execute(statement)).scalar_one_or_none()
+            if alert_id is None:
+                return False
             session.add_all(
                 [
                     EvidenceRecord(
-                        alert_id=alert_record.id,
+                        alert_id=alert_id,
                         marketplace=alert.entity.marketplace,
                         entity_type=alert.entity.entity_type,
                         entity_id=alert.entity.entity_id,
@@ -161,6 +216,10 @@ class PostgresAlertRepository:
                     for e in alert.evidence
                 ]
             )
+            return True
+
+    async def save(self, alert: Alert) -> None:
+        await self.save_if_new(alert)
 
 
 class PostgresOAuthStateRepository:
