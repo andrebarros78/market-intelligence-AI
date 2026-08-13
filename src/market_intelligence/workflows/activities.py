@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -19,6 +21,7 @@ from market_intelligence.marketplaces.base import (
     MarketplaceReadError,
 )
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
+from market_intelligence.marketplaces.mercadolivre.oauth.sanitize import sanitize_mapping
 from market_intelligence.persistence.contracts import (
     AlertRepository,
     ChannelEventRepository,
@@ -26,6 +29,7 @@ from market_intelligence.persistence.contracts import (
     RawEventRepository,
     SnapshotRepository,
 )
+from market_intelligence.persistence.models import ChannelEventRecord
 from market_intelligence.workflows.names import (
     ACTIVITY_EVALUATE_RADAR,
     ACTIVITY_FETCH_RESOURCE,
@@ -163,13 +167,68 @@ class MarketplaceActivities:
 
 
 class RadarActivities:
-    def __init__(self, radar: RadarService) -> None:
+    def __init__(
+        self,
+        radar: RadarService,
+        *,
+        channel_sessions: async_sessionmaker[AsyncSession] | None = None,
+        channel_history_limit: int = 64,
+    ) -> None:
         self._radar = radar
+        self._channel_sessions = channel_sessions
+        self._channel_history_limit = max(12, min(int(channel_history_limit), 256))
+
+    async def _with_persisted_channel_history(
+        self, observation: RadarObservation
+    ) -> RadarObservation:
+        if self._channel_sessions is None or "channel_events" in observation.context:
+            return observation
+        marketplace = str(observation.context.get("marketplace") or "")
+        if not marketplace:
+            return observation
+        operation_value = observation.context.get("channel_operation")
+        operation = str(operation_value) if operation_value else None
+        statement = select(ChannelEventRecord).where(
+            ChannelEventRecord.marketplace == marketplace,
+            ChannelEventRecord.observed_at <= observation.observed_at,
+        )
+        if operation:
+            statement = statement.where(ChannelEventRecord.operation == operation)
+        statement = statement.order_by(ChannelEventRecord.observed_at.desc()).limit(
+            self._channel_history_limit
+        )
+        async with self._channel_sessions() as session:
+            rows = list((await session.execute(statement)).scalars())
+        if not rows:
+            return observation
+        events = [
+            ChannelEvent(
+                marketplace=row.marketplace,
+                direction=row.direction,
+                operation=row.operation,
+                observed_at=row.observed_at,
+                status_code=row.status_code,
+                latency_ms=row.latency_ms,
+                attempt=row.attempt,
+                correlation_id=row.correlation_id,
+                request_id=row.request_id,
+                attributes=sanitize_mapping(row.attributes or {}),
+            ).model_dump(mode="python")
+            for row in reversed(rows)
+        ]
+        payload = observation.model_dump(mode="python")
+        context = dict(observation.context)
+        context["channel_events"] = events
+        context["channel_history_source"] = "postgresql"
+        context["channel_history_count"] = len(events)
+        payload["context"] = context
+        return RadarObservation.model_validate(payload)
 
     @activity.defn(name=ACTIVITY_EVALUATE_RADAR)
     async def evaluate(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             observation = RadarObservation.model_validate(payload)
+            observation = await self._with_persisted_channel_history(observation)
         except Exception as exc:
             raise ApplicationError("invalid radar observation", non_retryable=True) from exc
         return self._radar.evaluate(observation).model_dump(mode="json")
