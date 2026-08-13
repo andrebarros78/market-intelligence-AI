@@ -80,8 +80,8 @@ def create_app(
                 "counterfactual": False,
                 "unexplained_residual": False,
             },
-            "channel_sensor": {
-                "implemented": True,
+            "channel_sensor": True,
+            "channel_sensor_details": {
                 "persistent": True,
                 "synthetic_only": True,
             },
