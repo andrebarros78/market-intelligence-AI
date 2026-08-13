@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
+from market_intelligence.api.ingestion import build_synthetic_ingestion_router
 from market_intelligence.api.oauth import build_synthetic_oauth_router
 from market_intelligence.core.config import Settings
 from market_intelligence.intelligence.radar.detectors import KnownRuleDetector, RobustZScoreDetector
@@ -18,10 +19,11 @@ def create_app(
     *,
     oauth_runtime: SyntheticOAuthRuntime | None = None,
     oauth_refresh_engine: WorkflowEngine | None = None,
+    ingestion_engine: WorkflowEngine | None = None,
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
     radar = RadarService([KnownRuleDetector(), RobustZScoreDetector()])
-    app = FastAPI(title="Market Intelligence IA", version="0.5.0")
+    app = FastAPI(title="Market Intelligence IA", version="0.6.0")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -38,6 +40,7 @@ def create_app(
             "temporal_enabled": cfg.temporal_enabled,
             "oauth_synthetic_configured": oauth_runtime is not None,
             "oauth_refresh_workflow_configured": oauth_refresh_engine is not None,
+            "synthetic_ingestion_workflow_configured": ingestion_engine is not None,
         }
 
     @app.get("/v1/system/capabilities")
@@ -48,9 +51,11 @@ def create_app(
                 "postgresql_schema": True,
                 "alembic_migrations": True,
                 "raw_event_idempotency": True,
+                "channel_event_idempotency": True,
                 "entity_upsert": True,
                 "change_snapshots": True,
                 "alert_evidence_atomic_save": True,
+                "alert_idempotency": True,
                 "oauth_state_single_consume": True,
                 "runtime_connection_configured": bool(cfg.database_url),
             },
@@ -67,6 +72,8 @@ def create_app(
             "radar": {
                 "known_rules": True,
                 "statistical_baseline": True,
+                "vertical_synthetic_path": True,
+                "persistent_alerts": True,
                 "temporal": False,
                 "multivariate": False,
                 "regime_change": False,
@@ -74,11 +81,16 @@ def create_app(
                 "unexplained_residual": False,
             },
             "channel_sensor": True,
+            "channel_sensor_details": {
+                "persistent": True,
+                "synthetic_only": True,
+            },
             "production_workflows": {
                 "engine": "temporal",
                 "implemented": True,
                 "runtime_enabled": cfg.temporal_enabled,
                 "durable_ingestion": True,
+                "synthetic_ingestion_configured": ingestion_engine is not None,
                 "durable_synthetic_oauth_refresh": True,
                 "activity_retries": True,
                 "workflow_idempotency": True,
@@ -91,6 +103,7 @@ def create_app(
         return radar.evaluate(observation)
 
     app.include_router(build_synthetic_oauth_router(oauth_runtime, oauth_refresh_engine))
+    app.include_router(build_synthetic_ingestion_router(ingestion_engine))
     return app
 
 

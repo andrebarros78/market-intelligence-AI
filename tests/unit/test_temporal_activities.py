@@ -26,6 +26,11 @@ class RawRepo:
         return True
 
 
+class ChannelRepo:
+    async def append_if_new(self, event: Any) -> bool:
+        return True
+
+
 class EntityRepo:
     def __init__(self) -> None:
         self.items: dict[str, dict[str, Any]] = {}
@@ -51,6 +56,14 @@ class SnapshotRepo:
         return True
 
 
+class AlertRepo:
+    async def save(self, alert: Any) -> None:
+        return None
+
+    async def save_if_new(self, alert: Any) -> bool:
+        return True
+
+
 class FakeAdapter:
     name = "mercadolivre"
 
@@ -66,7 +79,9 @@ def test_temporal_activities_keep_side_effects_outside_workflow() -> None:
         raw = RawRepo()
         entities = EntityRepo()
         snapshots = SnapshotRepo()
-        persistence = PersistenceActivities(raw, entities, snapshots)
+        persistence = PersistenceActivities(
+            raw, ChannelRepo(), entities, snapshots, AlertRepo()
+        )
         marketplace = MarketplaceActivities({"mercadolivre": FakeAdapter()})
         radar = RadarActivities(RadarService([KnownRuleDetector(), RobustZScoreDetector()]))
 

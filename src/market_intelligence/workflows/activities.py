@@ -8,16 +8,26 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from market_intelligence.core.contracts import EntityRef
+from market_intelligence.ingestion.channel import ChannelEvent
 from market_intelligence.ingestion.events import RawEvent
-from market_intelligence.intelligence.radar.models import RadarObservation
+from market_intelligence.intelligence.radar.alerts import alert_from_finding
+from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
 from market_intelligence.intelligence.radar.service import RadarService
 from market_intelligence.marketplaces.base import MarketplaceAdapter
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
-from market_intelligence.persistence.contracts import EntityRepository, RawEventRepository, SnapshotRepository
+from market_intelligence.persistence.contracts import (
+    AlertRepository,
+    ChannelEventRepository,
+    EntityRepository,
+    RawEventRepository,
+    SnapshotRepository,
+)
 from market_intelligence.workflows.names import (
     ACTIVITY_EVALUATE_RADAR,
     ACTIVITY_FETCH_RESOURCE,
     ACTIVITY_OAUTH_REFRESH,
+    ACTIVITY_PERSIST_CHANNEL_EVENT,
+    ACTIVITY_PERSIST_RADAR_ALERT,
     ACTIVITY_PERSIST_RAW_EVENT,
     ACTIVITY_PERSIST_RESOURCE,
 )
@@ -25,9 +35,19 @@ from market_intelligence.workflows.oauth_safety import validate_safe_oauth_tempo
 
 
 class PersistenceActivities:
-    def __init__(self, raw_events: RawEventRepository, entities: EntityRepository,
-                 snapshots: SnapshotRepository) -> None:
-        self._raw_events, self._entities, self._snapshots = raw_events, entities, snapshots
+    def __init__(
+        self,
+        raw_events: RawEventRepository,
+        channel_events: ChannelEventRepository,
+        entities: EntityRepository,
+        snapshots: SnapshotRepository,
+        alerts: AlertRepository,
+    ) -> None:
+        self._raw_events = raw_events
+        self._channel_events = channel_events
+        self._entities = entities
+        self._snapshots = snapshots
+        self._alerts = alerts
 
     @activity.defn(name=ACTIVITY_PERSIST_RAW_EVENT)
     async def persist_raw_event(self, payload: dict[str, Any]) -> bool:
@@ -37,12 +57,22 @@ class PersistenceActivities:
             raise ApplicationError("invalid raw event payload", non_retryable=True) from exc
         return await self._raw_events.append_if_new(event)
 
+    @activity.defn(name=ACTIVITY_PERSIST_CHANNEL_EVENT)
+    async def persist_channel_event(self, payload: dict[str, Any]) -> bool:
+        try:
+            event = ChannelEvent.model_validate(payload)
+        except Exception as exc:
+            raise ApplicationError("invalid channel event payload", non_retryable=True) from exc
+        return await self._channel_events.append_if_new(event)
+
     @activity.defn(name=ACTIVITY_PERSIST_RESOURCE)
     async def persist_resource_snapshot(self, payload: dict[str, Any]) -> bool:
         try:
-            entity = EntityRef(marketplace=str(payload["marketplace"]),
-                               entity_type=str(payload["entity_type"]),
-                               entity_id=str(payload["entity_id"]))
+            entity = EntityRef(
+                marketplace=str(payload["marketplace"]),
+                entity_type=str(payload["entity_type"]),
+                entity_id=str(payload["entity_id"]),
+            )
             resource_payload = payload["payload"]
             if not isinstance(resource_payload, dict):
                 raise TypeError("payload must be an object")
@@ -51,6 +81,27 @@ class PersistenceActivities:
             raise ApplicationError("invalid resource snapshot payload", non_retryable=True) from exc
         await self._entities.upsert(entity, resource_payload, observed_at)
         return await self._snapshots.append_if_changed(entity, resource_payload, observed_at)
+
+    @activity.defn(name=ACTIVITY_PERSIST_RADAR_ALERT)
+    async def persist_radar_alert(self, payload: dict[str, Any]) -> bool:
+        try:
+            finding = RadarFinding.model_validate(payload["finding"])
+            observed_at = datetime.fromisoformat(str(payload["observed_at"]))
+            context = payload.get("context") or {}
+            if not isinstance(context, dict):
+                raise TypeError("context must be an object")
+            alert = alert_from_finding(
+                finding=finding,
+                marketplace=str(payload["marketplace"]),
+                entity_type=str(payload["entity_type"]),
+                observed_at=observed_at,
+                context=context,
+            )
+        except Exception as exc:
+            raise ApplicationError("invalid radar alert payload", non_retryable=True) from exc
+        if alert is None:
+            return False
+        return await self._alerts.save_if_new(alert)
 
 
 class MarketplaceActivities:

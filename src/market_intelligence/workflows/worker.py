@@ -11,6 +11,8 @@ from market_intelligence.intelligence.radar.service import RadarService
 from market_intelligence.marketplaces.base import MarketplaceAdapter
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
 from market_intelligence.persistence.postgresql import (
+    PostgresAlertRepository,
+    PostgresChannelEventRepository,
     PostgresEntityRepository,
     PostgresRawEventRepository,
     PostgresSnapshotRepository,
@@ -36,8 +38,10 @@ def build_temporal_worker(
 ) -> Worker:
     persistence = PersistenceActivities(
         PostgresRawEventRepository(sessions),
+        PostgresChannelEventRepository(sessions),
         PostgresEntityRepository(sessions),
         PostgresSnapshotRepository(sessions),
+        PostgresAlertRepository(sessions),
     )
     marketplace = MarketplaceActivities(adapters)
     radar_activities = RadarActivities(
@@ -45,8 +49,10 @@ def build_temporal_worker(
     )
     workflows: list[type] = [MarketIntelligenceIngestionWorkflow]
     activities: list = [
+        persistence.persist_channel_event,
         persistence.persist_raw_event,
         persistence.persist_resource_snapshot,
+        persistence.persist_radar_alert,
         marketplace.fetch_resource,
         radar_activities.evaluate,
     ]

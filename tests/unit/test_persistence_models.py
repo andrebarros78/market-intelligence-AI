@@ -10,6 +10,7 @@ def test_operational_schema_can_be_materialized_in_memory() -> None:
     tables = set(inspect(engine).get_table_names())
     assert tables == {
         "raw_events",
+        "channel_events",
         "entities",
         "snapshots",
         "alerts",
@@ -44,3 +45,13 @@ def test_raw_events_have_a_database_idempotency_key() -> None:
     assert "dedupe_key" in table.c
     unique_names = {constraint.name for constraint in table.constraints if constraint.name}
     assert "uq_raw_events_dedupe_key" in unique_names
+
+
+def test_channel_events_and_alerts_have_database_idempotency_keys() -> None:
+    channel = Base.metadata.tables["channel_events"]
+    alerts = Base.metadata.tables["alerts"]
+    assert "dedupe_key" in channel.c and "dedupe_key" in alerts.c
+    channel_unique = {constraint.name for constraint in channel.constraints if constraint.name}
+    alert_unique = {constraint.name for constraint in alerts.constraints if constraint.name}
+    assert "uq_channel_events_dedupe_key" in channel_unique
+    assert "uq_alerts_dedupe_key" in alert_unique
