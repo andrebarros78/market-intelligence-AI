@@ -35,3 +35,15 @@ def _payload() -> dict:
             }
         },
     }
+
+
+def test_api_exposes_non_causal_factor_attribution() -> None:
+    response = TestClient(create_app(Settings())).post("/v1/radar/evaluate", json=_payload())
+    assert response.status_code == 200
+    by_name = {item["detector"]: item for item in response.json()["detector_results"]}
+    attribution = by_name["factor_attribution_v1"]
+    assert attribution["level"] == "inference"
+    assert attribution["attributes"]["causal_claim"] is False
+    assert attribution["attributes"]["fit_uses_current_target"] is False
+    assert attribution["attributes"]["observable_causes"] == ["competition"]
+    assert attribution["attributes"]["detector_version"] == "factor-attribution@1.0.0"
