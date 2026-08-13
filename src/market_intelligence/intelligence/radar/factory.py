@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from market_intelligence.intelligence.radar.channel_regime import ChannelRegimeCorrelationDetector
 from market_intelligence.intelligence.radar.counterfactual import OperationalCounterfactualDetector
 from market_intelligence.intelligence.radar.detectors import (
     KnownRuleDetector,
@@ -28,5 +29,6 @@ def build_default_radar() -> RadarService:
             OperationalCounterfactualDetector(),
             ObservableFactorAttributionDetector(),
             UnexplainedResidualDetector(),
+            ChannelRegimeCorrelationDetector(),
         ]
     )

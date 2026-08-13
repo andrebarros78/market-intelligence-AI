@@ -1,5 +1,7 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from market_intelligence.core.contracts import EvidenceLevel
+from market_intelligence.intelligence.radar.channel_regime import ChannelRegimeCorrelationDetector
 from market_intelligence.intelligence.radar.counterfactual import OperationalCounterfactualDetector
 from market_intelligence.intelligence.radar.factory import build_default_radar
 from market_intelligence.intelligence.radar.models import RadarObservation
@@ -36,6 +38,41 @@ def _observation(current=75, *, controls=None):
         metrics={"visits": current},
         history={"visits": HISTORY},
         context={"control_candidates": controls or _candidates()},
+    )
+
+
+def _channel_events(now: datetime, *, degraded: bool = True):
+    events = []
+    start = now - timedelta(minutes=11)
+    for index in range(12):
+        recent = index >= 8
+        events.append(
+            {
+                "marketplace": "mercadolivre",
+                "direction": "inbound",
+                "operation": "/items/MLB1",
+                "observed_at": start + timedelta(minutes=index),
+                "status_code": 503 if recent and degraded else 200,
+                "latency_ms": 420.0 if recent and degraded else 90.0,
+                "attempt": 2 if recent and degraded else 1,
+                "attributes": (
+                    {"partial_content": True, "schema_changed": index == 11}
+                    if recent and degraded
+                    else {}
+                ),
+            }
+        )
+    return events
+
+
+def _channel_observation(*, visits: float = 55, degraded: bool = True):
+    now = datetime.now(UTC)
+    return RadarObservation(
+        entity_id="MLB1",
+        observed_at=now,
+        metrics={"visits": visits},
+        history={"visits": HISTORY},
+        context={"channel_events": _channel_events(now, degraded=degraded)},
     )
 
 
@@ -103,3 +140,46 @@ def test_default_radar_registers_operational_counterfactual():
     )
     assert result.attributes["counterfactual_expected"] == 100.0
     assert result.attributes["causal_claim"] is False
+
+
+def test_r115_joint_regime_is_noncausal_inference():
+    result = ChannelRegimeCorrelationDetector().evaluate(_channel_observation())
+    assert result is not None
+    assert result.level is EvidenceLevel.INFERENCE
+    assert result.score >= 0.70
+    assert result.attributes["correlation_status"] == "joint_regime_detected"
+    assert result.attributes["causal_claim"] is False
+    assert result.attributes["internal_platform_cause_confirmed"] is False
+    assert "error_rate_shift" in result.attributes["channel_signals"]
+    assert "retry_rate_shift" in result.attributes["channel_signals"]
+    assert "latency_shift" in result.attributes["channel_signals"]
+
+
+def test_r115_channel_only_signal_stays_below_alert_threshold():
+    result = ChannelRegimeCorrelationDetector().evaluate(_channel_observation(visits=100))
+    assert result is not None
+    assert result.level is EvidenceLevel.FACT
+    assert result.score < 0.60
+    assert result.attributes["correlation_status"] == "business_signal_absent"
+
+
+def test_r115_business_drop_without_channel_regime_is_rejected():
+    assert ChannelRegimeCorrelationDetector().evaluate(
+        _channel_observation(degraded=False)
+    ) is None
+
+
+def test_r115_insufficient_channel_history_is_rejected():
+    observation = _channel_observation()
+    observation.context["channel_events"] = observation.context["channel_events"][:8]
+    assert ChannelRegimeCorrelationDetector().evaluate(observation) is None
+
+
+def test_default_radar_registers_r115_detector():
+    finding = build_default_radar().evaluate(_channel_observation())
+    result = next(
+        item for item in finding.detector_results
+        if item.detector == "channel_regime_correlation_v1"
+    )
+    assert result.level is EvidenceLevel.INFERENCE
+    assert finding.anomalous is True

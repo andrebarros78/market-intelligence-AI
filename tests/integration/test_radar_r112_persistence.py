@@ -1,17 +1,22 @@
 import asyncio
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
 
+from market_intelligence.ingestion.channel import ChannelEvent
 from market_intelligence.intelligence.radar.alerts import alert_from_finding
 from market_intelligence.intelligence.radar.factory import build_default_radar
-from market_intelligence.intelligence.radar.models import RadarObservation
+from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
 from market_intelligence.persistence.models import AlertRecord, EvidenceRecord
-from market_intelligence.persistence.postgresql import PostgresAlertRepository
+from market_intelligence.persistence.postgresql import (
+    PostgresAlertRepository,
+    PostgresChannelEventRepository,
+)
+from market_intelligence.workflows.activities import RadarActivities
 
 HISTORY = [100, 101, 99, 100, 102, 98, 101, 99, 100, 100]
 
@@ -79,6 +84,100 @@ def test_automatic_control_comparison_is_persisted_and_deduplicated() -> None:
             assert counterfactual_evidence.attributes["counterfactual_kind"] == "operational_not_causal"
             assert counterfactual_evidence.attributes["causal_claim"] is False
             assert counterfactual_evidence.attributes["fit_uses_current_target"] is False
+        finally:
+            await db.dispose()
+
+    asyncio.run(run())
+
+
+@pytest.mark.postgres
+def test_channel_regime_correlation_evidence_is_persisted_and_deduplicated() -> None:
+    url = os.getenv("TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("database not configured")
+
+    async def run() -> None:
+        db = create_database_engine(url)
+        sessions = create_session_factory(db)
+        observed_at = datetime.now(UTC)
+        entity_id = f"R115-{uuid4().hex}"
+        operation = f"/items/{entity_id}"
+        start = observed_at - timedelta(minutes=11)
+        channel_repo = PostgresChannelEventRepository(sessions)
+        for index in range(12):
+            recent = index >= 8
+            event = ChannelEvent(
+                marketplace="mercadolivre",
+                direction="inbound",
+                operation=operation,
+                observed_at=start + timedelta(minutes=index),
+                status_code=503 if recent else 200,
+                latency_ms=450.0 if recent else 90.0,
+                attempt=2 if recent else 1,
+                correlation_id=f"{entity_id}-{index}",
+                attributes=(
+                    {"partial_content": True, "opaque_marker": "must_not_propagate"}
+                    if recent
+                    else {}
+                ),
+            )
+            assert await channel_repo.append_if_new(event) is True
+
+        radar_payload = RadarObservation(
+            entity_id=entity_id,
+            observed_at=observed_at,
+            metrics={"visits": 55},
+            history={"visits": HISTORY},
+            context={
+                "marketplace": "mercadolivre",
+                "channel_operation": operation,
+            },
+        ).model_dump(mode="json")
+        finding_payload = await RadarActivities(
+            build_default_radar(), channel_sessions=sessions
+        ).evaluate(radar_payload)
+        channel_result = next(
+            item for item in finding_payload["detector_results"]
+            if item["detector"] == "channel_regime_correlation_v1"
+        )
+        assert channel_result["level"] == "inference"
+        assert channel_result["attributes"]["correlation_status"] == "joint_regime_detected"
+        assert channel_result["attributes"]["causal_claim"] is False
+        assert "opaque_marker" not in str(channel_result["attributes"])
+
+        finding = RadarFinding.model_validate(finding_payload)
+        alert = alert_from_finding(
+            finding=finding,
+            marketplace="mercadolivre",
+            entity_type="item",
+            observed_at=observed_at,
+            context={},
+        )
+        assert alert is not None
+        repo = PostgresAlertRepository(sessions)
+        try:
+            assert await repo.save_if_new(alert) is True
+            assert await repo.save_if_new(alert) is False
+            async with sessions() as session:
+                row = (
+                    await session.execute(
+                        select(AlertRecord).where(AlertRecord.entity_id == entity_id)
+                    )
+                ).scalar_one()
+                channel_evidence = (
+                    await session.execute(
+                        select(EvidenceRecord).where(
+                            EvidenceRecord.entity_id == entity_id,
+                            EvidenceRecord.source == "radar:channel_regime_correlation_v1",
+                        )
+                    )
+                ).scalar_one()
+            assert "channel-regime-correlation@1.0.0" in (row.detector_version or "")
+            assert channel_evidence.level == "inference"
+            assert channel_evidence.attributes["correlation_status"] == "joint_regime_detected"
+            assert channel_evidence.attributes["causal_claim"] is False
+            assert channel_evidence.attributes["internal_platform_cause_confirmed"] is False
+            assert "opaque_marker" not in str(channel_evidence.attributes)
         finally:
             await db.dispose()
 

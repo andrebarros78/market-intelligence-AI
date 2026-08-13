@@ -50,6 +50,42 @@ class RadarObservation(BaseModel):
             self.history = projected_history
         return self
 
+    @model_validator(mode="after")
+    def reject_stale_channel_context(self) -> "RadarObservation":
+        raw_events = self.context.get("channel_events")
+        if not isinstance(raw_events, list) or not raw_events:
+            return self
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            return self
+        timestamps: list[datetime] = []
+        for item in raw_events:
+            if not isinstance(item, dict):
+                continue
+            value = item.get("observed_at")
+            if isinstance(value, datetime):
+                timestamp = value
+            elif isinstance(value, str):
+                try:
+                    timestamp = datetime.fromisoformat(value)
+                except ValueError:
+                    continue
+            else:
+                continue
+            if timestamp.tzinfo is not None and timestamp.utcoffset() is not None:
+                timestamps.append(timestamp)
+        if not timestamps:
+            return self
+        alignment_seconds = abs((self.observed_at - max(timestamps)).total_seconds())
+        max_alignment_seconds = 21600.0
+        if alignment_seconds > max_alignment_seconds:
+            sanitized = dict(self.context)
+            sanitized["channel_events"] = []
+            sanitized["channel_events_rejected_as_stale"] = True
+            sanitized["channel_alignment_seconds"] = alignment_seconds
+            sanitized["channel_max_alignment_seconds"] = max_alignment_seconds
+            self.context = sanitized
+        return self
+
 
 class DetectorResult(BaseModel):
     detector: str
