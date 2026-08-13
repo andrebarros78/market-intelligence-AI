@@ -22,7 +22,7 @@ def create_app(
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
     radar = build_default_radar()
-    app = FastAPI(title="Market Intelligence IA", version="0.12.0")
+    app = FastAPI(title="Market Intelligence IA", version="0.14.0")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -88,17 +88,22 @@ def create_app(
                 "investigation_context_persistence": True,
                 "temporal": True,
                 "temporal_detector": "temporal-pattern@1.0.0",
-                "seasonality": False,
+                "seasonality": True,
+                "seasonality_detector": "seasonality@1.0.0",
                 "multivariate": True,
                 "multivariate_detector": "multivariate-relationship@1.0.0",
                 "regime_change": True,
                 "regime_change_detector": "regime-change@1.0.0",
                 "relational_controls": True,
-                "relational_control_detector": "relational-control@1.0.0",
+                "relational_control_detector": "relational-control@2.0.0",
                 "control_group_comparison": True,
+                "operational_counterfactual": True,
+                "operational_counterfactual_detector": "operational-counterfactual@1.0.0",
                 "counterfactual": False,
+                "factor_attribution_detector": True,
+                "factor_attribution_detector_version": "factor-attribution@1.0.0",
                 "unexplained_residual_detector": True,
-                "unexplained_residual_detector_version": "unexplained-residual@1.0.0",
+                "unexplained_residual_detector_version": "unexplained-residual@2.0.0",
             },
             "channel_sensor": True,
             "channel_sensor_details": {
