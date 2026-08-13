@@ -56,3 +56,55 @@ def test_stale_channel_events_are_excluded_from_radar_correlation() -> None:
     assert observation.context["channel_events_rejected_as_stale"] is True
     assert observation.context["channel_alignment_seconds"] > 21600
     assert ChannelRegimeCorrelationDetector().evaluate(observation) is None
+
+
+def test_channel_schema_cadence_and_partial_signals_are_aggregated_without_raw_attributes() -> None:
+    now = datetime.now(UTC)
+    events = []
+    baseline_start = now - timedelta(minutes=37)
+    for index in range(8):
+        events.append(
+            {
+                "marketplace": "mercadolivre",
+                "direction": "inbound",
+                "operation": "/notifications",
+                "observed_at": baseline_start + timedelta(minutes=index),
+                "status_code": 200,
+                "latency_ms": 100.0,
+                "attempt": 1,
+                "attributes": {},
+            }
+        )
+    for index, minutes_ago in enumerate((30, 20, 10, 0)):
+        events.append(
+            {
+                "marketplace": "mercadolivre",
+                "direction": "inbound",
+                "operation": "/notifications",
+                "observed_at": now - timedelta(minutes=minutes_ago),
+                "status_code": 206,
+                "latency_ms": 100.0,
+                "attempt": 1,
+                "attributes": {
+                    "partial_content": True,
+                    "schema_changed": index == 3,
+                    "opaque_marker": "MUST_NOT_APPEAR",
+                },
+            }
+        )
+    observation = RadarObservation(
+        entity_id="CHANNEL-SIGNALS",
+        observed_at=now,
+        metrics={"visits": 55},
+        history={"visits": HISTORY},
+        context={"channel_events": events},
+    )
+    result = ChannelRegimeCorrelationDetector().evaluate(observation)
+    assert result is not None
+    signals = set(result.attributes["channel_signals"])
+    assert "partial_content_shift" in signals
+    assert "schema_change_shift" in signals
+    assert "cadence_shift" in signals
+    rendered = str(result.model_dump(mode="json"))
+    assert "MUST_NOT_APPEAR" not in rendered
+    assert "opaque_marker" not in rendered
