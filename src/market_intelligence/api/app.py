@@ -97,7 +97,8 @@ def create_app(
                 "relational_control_detector": "relational-control@1.0.0",
                 "control_group_comparison": True,
                 "counterfactual": False,
-                "unexplained_residual_detector": False,
+                "unexplained_residual_detector": True,
+                "unexplained_residual_detector_version": "unexplained-residual@1.0.0",
             },
             "channel_sensor": True,
             "channel_sensor_details": {
