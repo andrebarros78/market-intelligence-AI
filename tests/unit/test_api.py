@@ -28,7 +28,8 @@ def test_capabilities_are_honest_about_unimplemented_and_optional_layers() -> No
     assert capabilities["oauth"]["runtime_configured"] is False
     assert capabilities["oauth"]["temporal_refresh_configured"] is False
     assert capabilities["oauth"]["real_network_enabled"] is False
-    assert capabilities["channel_sensor"]["synthetic_only"] is True
+    assert capabilities["channel_sensor"] is True
+    assert capabilities["channel_sensor_details"]["synthetic_only"] is True
     workflows = capabilities["production_workflows"]
     assert workflows["engine"] == "temporal"
     assert workflows["implemented"] is True
