@@ -8,7 +8,7 @@ import httpx
 from pydantic import SecretStr
 
 from market_intelligence.ingestion.events import RawEvent
-from market_intelligence.marketplaces.base import MarketplaceAdapter
+from market_intelligence.marketplaces.base import MarketplaceAdapter, MarketplaceReadError
 from market_intelligence.marketplaces.mercadolivre.channel_sensor import (
     ChannelTelemetry,
     build_channel_telemetry,
@@ -52,7 +52,7 @@ class MercadoLivreReadResult:
         return self.telemetry.partial_content or bool(self.missing_fields)
 
 
-class MercadoLivreReadError(RuntimeError):
+class MercadoLivreReadError(MarketplaceReadError):
     def __init__(
         self,
         code: str,
@@ -62,10 +62,7 @@ class MercadoLivreReadError(RuntimeError):
         retry_after: str | None = None,
         telemetry: ChannelTelemetry | None = None,
     ) -> None:
-        super().__init__(code)
-        self.code = code
-        self.status_code = status_code
-        self.retryable = retryable
+        super().__init__(code, status_code=status_code, retryable=retryable)
         self.retry_after = retry_after
         self.telemetry = telemetry
 
