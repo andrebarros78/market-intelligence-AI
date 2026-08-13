@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from market_intelligence.intelligence.radar.counterfactual import OperationalCounterfactualDetector
 from market_intelligence.intelligence.radar.detectors import (
     KnownRuleDetector,
     RobustZScoreDetector,
@@ -24,6 +25,7 @@ def build_default_radar() -> RadarService:
             RegimeChangeDetector(),
             MultivariateRelationshipDetector(),
             RelationalControlDetector(),
+            OperationalCounterfactualDetector(),
             ObservableFactorAttributionDetector(),
             UnexplainedResidualDetector(),
         ]
