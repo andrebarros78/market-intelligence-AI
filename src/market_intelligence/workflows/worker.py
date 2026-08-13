@@ -36,14 +36,15 @@ def build_temporal_worker(
     radar: RadarService | None = None,
     oauth_runtime: SyntheticOAuthRuntime | None = None,
 ) -> Worker:
+    channel_events = PostgresChannelEventRepository(sessions)
     persistence = PersistenceActivities(
         PostgresRawEventRepository(sessions),
-        PostgresChannelEventRepository(sessions),
+        channel_events,
         PostgresEntityRepository(sessions),
         PostgresSnapshotRepository(sessions),
         PostgresAlertRepository(sessions),
     )
-    marketplace = MarketplaceActivities(adapters)
+    marketplace = MarketplaceActivities(adapters, channel_events=channel_events)
     radar_activities = RadarActivities(
         radar or RadarService([KnownRuleDetector(), RobustZScoreDetector()])
     )
