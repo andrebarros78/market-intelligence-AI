@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from market_intelligence.intelligence.radar.channel_regime import ChannelRegimeCorrelationDetector
 from market_intelligence.intelligence.radar.models import RadarObservation
 from market_intelligence.marketplaces.mercadolivre.channel_sensor import build_channel_telemetry
+from market_intelligence.workflows.activities import _operation_contains_entity
 
 
 HISTORY = [100, 101, 99, 100, 102, 98, 101, 99, 100, 100]
@@ -108,3 +109,11 @@ def test_channel_schema_cadence_and_partial_signals_are_aggregated_without_raw_a
     rendered = str(result.model_dump(mode="json"))
     assert "MUST_NOT_APPEAR" not in rendered
     assert "opaque_marker" not in rendered
+
+
+def test_entity_path_scope_rejects_prefix_collisions() -> None:
+    entity_id = "MLB123"
+    assert _operation_contains_entity("/items/MLB123", entity_id) is True
+    assert _operation_contains_entity("/items/MLB123/price_to_win", entity_id) is True
+    assert _operation_contains_entity("/items/MLB1234", entity_id) is False
+    assert _operation_contains_entity("synthetic-notification", entity_id) is False
