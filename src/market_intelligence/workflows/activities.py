@@ -183,9 +183,7 @@ class RadarActivities:
     ) -> RadarObservation:
         if self._channel_sessions is None or "channel_events" in observation.context:
             return observation
-        marketplace = str(observation.context.get("marketplace") or "")
-        if not marketplace:
-            return observation
+        marketplace = str(observation.context.get("marketplace") or "mercadolivre")
         operation_value = observation.context.get("channel_operation")
         operation = str(operation_value) if operation_value else None
         statement = select(ChannelEventRecord).where(
