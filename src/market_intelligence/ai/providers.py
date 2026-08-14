@@ -123,7 +123,7 @@ class OpenAIResponsesDriver:
         ) as client:
             try:
                 response = await client.get(
-                    "/v1/models",
+                    "models",
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
             except (httpx.TimeoutException, httpx.TransportError) as exc:
