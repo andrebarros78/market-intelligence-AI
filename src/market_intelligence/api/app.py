@@ -10,6 +10,7 @@ from market_intelligence.api.oauth import build_synthetic_oauth_router
 from market_intelligence.core.config import Settings
 from market_intelligence.intelligence.radar.factory import build_default_radar
 from market_intelligence.intelligence.radar.iad import IADCalibrationProfile
+from market_intelligence.intelligence.radar.investigation import ProgressiveInvestigationEngine
 from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
 from market_intelligence.intelligence.radar.pyod_ensemble import PyODBenchmarkProfile
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
@@ -44,6 +45,7 @@ def create_app(
         iad_profile=trusted_iad_profile,
         pyod_profile=trusted_pyod_profile,
     )
+    investigator = ProgressiveInvestigationEngine()
     app = FastAPI(title="Market Intelligence IA", version="0.12.0")
 
     @app.get("/health")
@@ -87,6 +89,9 @@ def create_app(
                 "change_snapshots": True,
                 "alert_evidence_atomic_save": True,
                 "alert_idempotency": True,
+                "investigation_cases": True,
+                "investigation_timeline": True,
+                "investigation_event_idempotency": True,
                 "oauth_state_single_consume": True,
                 "runtime_connection_configured": bool(cfg.database_url),
             },
@@ -108,6 +113,11 @@ def create_app(
                 "evidence_contract_v2": True,
                 "epistemic_classification": True,
                 "investigation_context_persistence": True,
+                "progressive_investigation": True,
+                "progressive_investigation_engine": "progressive-investigation@1.0.0",
+                "investigation_persistence": "postgresql_via_temporal_activity",
+                "investigation_http_mode": "stateless_preview",
+                "investigation_causal_claim": False,
                 "temporal": True,
                 "temporal_detector": "temporal-pattern@1.0.0",
                 "seasonality": False,
@@ -167,6 +177,7 @@ def create_app(
                 "durable_ingestion": True,
                 "synthetic_ingestion_configured": ingestion_engine is not None,
                 "durable_synthetic_oauth_refresh": True,
+                "durable_progressive_investigation": True,
                 "activity_retries": True,
                 "workflow_idempotency": True,
                 "marketplace_reads_only": True,
@@ -176,6 +187,18 @@ def create_app(
     @app.post("/v1/radar/evaluate", response_model=RadarFinding)
     def evaluate(observation: RadarObservation) -> RadarFinding:
         return radar.evaluate(observation)
+
+    @app.post("/v1/radar/investigate")
+    def investigate(observation: RadarObservation) -> dict[str, Any]:
+        finding = radar.evaluate(observation)
+        step = investigator.advance(finding=finding, observation=observation)
+        return {
+            "persistent": False,
+            "mode": "stateless_preview",
+            "finding": finding.model_dump(mode="json"),
+            "investigation": step.model_dump(mode="json") if step is not None else None,
+            "causal_claim": False,
+        }
 
     app.include_router(build_synthetic_oauth_router(oauth_runtime, oauth_refresh_engine))
     app.include_router(build_synthetic_ingestion_router(ingestion_engine))

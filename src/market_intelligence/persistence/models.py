@@ -158,6 +158,77 @@ class EvidenceRecord(Base):
     attributes: Mapped[dict] = mapped_column(JsonType, nullable=False, default=dict)
 
 
+class InvestigationCaseRecord(Base):
+    __tablename__ = "investigation_cases"
+    __table_args__ = (
+        CheckConstraint(
+            "confidence >= 0 AND confidence <= 1", name="ck_investigation_cases_confidence"
+        ),
+        UniqueConstraint("active_key", name="uq_investigation_cases_active_key"),
+        Index(
+            "ix_investigation_cases_entity_updated",
+            "marketplace",
+            "entity_type",
+            "entity_id",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    marketplace: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    active_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    observation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    anomalous_observation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    anomaly_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    normal_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ever_confirmed: Mapped[bool] = mapped_column(nullable=False, default=False)
+    hypotheses: Mapped[list] = mapped_column(JsonType, nullable=False, default=list)
+    recommended_action: Mapped[str] = mapped_column(Text, nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(160), nullable=False)
+    first_observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class InvestigationEventRecord(Base):
+    __tablename__ = "investigation_events"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_investigation_events_dedupe_key"),
+        Index("ix_investigation_events_case_observed", "case_id", "observed_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    case_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("investigation_cases.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    dedupe_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finding_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status_before: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status_after: Mapped[str] = mapped_column(String(32), nullable=False)
+    anomalous: Mapped[bool] = mapped_column(nullable=False)
+    finding_score: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence_before: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_after: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence_delta: Mapped[float] = mapped_column(Float, nullable=False)
+    evidence_summary: Mapped[dict] = mapped_column(JsonType, nullable=False)
+    hypotheses: Mapped[list] = mapped_column(JsonType, nullable=False, default=list)
+    recommended_action: Mapped[str] = mapped_column(Text, nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(160), nullable=False)
+    causal_claim: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class OAuthStateRecord(Base):
     __tablename__ = "oauth_states"
     __table_args__ = (

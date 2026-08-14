@@ -15,6 +15,8 @@ def test_operational_schema_can_be_materialized_in_memory() -> None:
         "snapshots",
         "alerts",
         "evidence",
+        "investigation_cases",
+        "investigation_events",
         "oauth_states",
         "oauth_credentials",
         "oauth_audit",
@@ -55,3 +57,14 @@ def test_channel_events_and_alerts_have_database_idempotency_keys() -> None:
     alert_unique = {constraint.name for constraint in alerts.constraints if constraint.name}
     assert "uq_channel_events_dedupe_key" in channel_unique
     assert "uq_alerts_dedupe_key" in alert_unique
+
+
+def test_investigation_schema_has_active_case_and_event_dedupe_guards() -> None:
+    cases = Base.metadata.tables["investigation_cases"]
+    events = Base.metadata.tables["investigation_events"]
+    case_unique = {constraint.name for constraint in cases.constraints if constraint.name}
+    event_unique = {constraint.name for constraint in events.constraints if constraint.name}
+    assert "active_key" in cases.c
+    assert "dedupe_key" in events.c
+    assert "uq_investigation_cases_active_key" in case_unique
+    assert "uq_investigation_events_dedupe_key" in event_unique
