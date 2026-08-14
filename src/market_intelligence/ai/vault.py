@@ -271,23 +271,8 @@ def _selected_slot(env_name: str, *, default: int) -> int:
 
 
 def _profile_has_any_env(slot: int) -> bool:
-    prefix = _profile_prefix(slot)
-    suffixes = (
-        "ENABLED",
-        "NAME",
-        "PROVIDER",
-        "MODEL",
-        "BASE_URL",
-        "API_KEY",
-        "BEARER_TOKEN",
-        "CLIENT_SECRET",
-        "ACCESS_TOKEN",
-        "REFRESH_TOKEN",
-        "PRIVATE_KEY",
-        "SERVICE_ACCOUNT_JSON",
-        "EXTRA_SECRET_JSON",
-    )
-    return any(os.getenv(f"{prefix}_{suffix}") is not None for suffix in suffixes)
+    prefix = f"{_profile_prefix(slot)}_"
+    return any(name.startswith(prefix) for name in os.environ)
 
 
 def _legacy_profile(*, role: str, slot: int) -> AIVaultProfile:
