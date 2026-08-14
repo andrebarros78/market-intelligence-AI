@@ -1,6 +1,7 @@
 from market_intelligence.ai.providers import (
     AIProviderConfig,
     AIProviderProbeResult,
+    GeminiDriver,
     OpenAIResponsesDriver,
     ProviderConfigurationError,
     ProviderManager,
@@ -9,6 +10,7 @@ from market_intelligence.ai.providers import (
 __all__ = [
     "AIProviderConfig",
     "AIProviderProbeResult",
+    "GeminiDriver",
     "OpenAIResponsesDriver",
     "ProviderConfigurationError",
     "ProviderManager",
