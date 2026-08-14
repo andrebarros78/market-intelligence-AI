@@ -81,6 +81,15 @@ def test_r119_feedback_is_durable_idempotent_ordered_and_calibration_safe() -> N
                 sessions,
                 trusted_for_calibration=True,
             )
+            trusted_replay = await trusted.record(
+                alert_id=alert_id,
+                submission=first_submission,
+            )
+            assert trusted_replay["inserted"] is False
+            assert trusted_replay["id"] == first["id"]
+            assert trusted_replay["calibration_eligible"] is False
+            assert (await trusted.report(detector_version=detector_version)).total_latest_outcomes == 0
+
             confirmed = await trusted.record(
                 alert_id=alert_id,
                 submission=AlertOutcomeSubmission(
