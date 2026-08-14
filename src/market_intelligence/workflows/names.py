@@ -1,5 +1,6 @@
 WORKFLOW_INGESTION = "market-intelligence-ingestion"
 WORKFLOW_OAUTH_REFRESH = "market-intelligence.oauth.synthetic-refresh.v1"
+WORKFLOW_AI_SANDBOX = "market-intelligence.ai.sandbox.v1"
 
 ACTIVITY_PERSIST_RAW_EVENT = "mi.persist_raw_event"
 ACTIVITY_PERSIST_CHANNEL_EVENT = "mi.persist_channel_event"
@@ -9,3 +10,4 @@ ACTIVITY_EVALUATE_RADAR = "mi.evaluate_radar"
 ACTIVITY_PERSIST_RADAR_ALERT = "mi.persist_radar_alert"
 ACTIVITY_ADVANCE_INVESTIGATION = "mi.advance_radar_investigation"
 ACTIVITY_OAUTH_REFRESH = "mi.oauth.synthetic_refresh"
+ACTIVITY_AI_SANDBOX_INFER = "mi.ai.sandbox_infer"
