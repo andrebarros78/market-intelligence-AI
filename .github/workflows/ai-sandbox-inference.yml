@@ -47,7 +47,7 @@ jobs:
   agents-zai-sandbox:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[IA-SANDBOX-RUN]')
     concurrency:
-      group: api-ml-zai-external-agent-gate
+      group: market-intelligence-zai-external-agent-gate
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
