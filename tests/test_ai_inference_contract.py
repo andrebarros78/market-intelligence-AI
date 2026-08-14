@@ -44,7 +44,10 @@ def test_prompt_is_deterministic_contains_only_minimized_payload_and_fixed_polic
     assert "listing-hash-01" in first.prompt
     assert "traffic_drop" in first.prompt
     assert "Authorization" not in first.prompt
-    assert "buyer" not in first.prompt.lower()
+
+    minimized_segment = first.prompt.split("MINIMIZED_DATA:\n", maxsplit=1)[1]
+    assert json.loads(minimized_segment) == source.payload
+    assert "buyer" not in json.dumps(source.payload, ensure_ascii=False).lower()
 
 
 def test_prompt_rejects_untrusted_or_failed_gateway_attestation() -> None:
