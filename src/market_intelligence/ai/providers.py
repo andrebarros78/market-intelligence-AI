@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from time import perf_counter
+from typing import Any, Callable, Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -18,6 +20,11 @@ class ProviderConfigurationError(RuntimeError):
 
 
 AI_ROLES = {"system", "agents"}
+SANDBOX_EXPECTED_OUTPUT = "SANDBOX_OK"
+SANDBOX_PROMPT = (
+    "Synthetic API ML sandbox test. Reply with exactly SANDBOX_OK and no other text."
+)
+SANDBOX_MAX_OUTPUT_TOKENS_LIMIT = 256
 
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "openai": ("gpt-5-mini", "https://api.openai.com/v1"),
@@ -36,6 +43,8 @@ class AIProviderConfig:
     store: bool = False
     retries: int = 0
     timeout_seconds: float = 20.0
+    max_output_tokens: int | None = None
+    temperature: float | None = None
 
     @classmethod
     def from_env(cls, *, role: str = "system") -> "AIProviderConfig":
@@ -83,13 +92,27 @@ class AIProviderConfig:
             or (os.getenv("MI_AI_STORE") if is_system else None)
             or "false"
         )
+        raw_max_output_tokens = os.getenv(f"{role_prefix}_MAX_OUTPUT_TOKENS") or (
+            os.getenv("MI_AI_MAX_OUTPUT_TOKENS") if is_system else None
+        )
+        raw_temperature = os.getenv(f"{role_prefix}_TEMPERATURE") or (
+            os.getenv("MI_AI_TEMPERATURE") if is_system else None
+        )
 
         try:
             retries = int(raw_retries)
             timeout_seconds = float(raw_timeout)
+            max_output_tokens = (
+                int(raw_max_output_tokens) if raw_max_output_tokens is not None else None
+            )
+            temperature = float(raw_temperature) if raw_temperature is not None else None
         except ValueError as exc:
             raise ProviderConfigurationError("ai_provider_invalid_numeric_config") from exc
-        if retries < 0 or timeout_seconds <= 0:
+        if (
+            retries < 0
+            or timeout_seconds <= 0
+            or (max_output_tokens is not None and max_output_tokens <= 0)
+        ):
             raise ProviderConfigurationError("ai_provider_invalid_numeric_config")
 
         return cls(
@@ -101,6 +124,8 @@ class AIProviderConfig:
             store=raw_store.strip().lower() == "true",
             retries=retries,
             timeout_seconds=timeout_seconds,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
         )
 
 
@@ -115,8 +140,32 @@ class AIProviderProbeResult(BaseModel):
     business_data_sent: bool = False
 
 
+class AIProviderInferenceResult(BaseModel):
+    role: str
+    provider: str
+    model: str
+    endpoint_host: str
+    authenticated: bool
+    inference_executed: bool
+    synthetic_data_only: bool
+    business_data_sent: bool
+    store_enabled: bool
+    expected_output_match: bool
+    output_sha256: str
+    output_length_chars: int
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    max_output_tokens: int
+    latency_ms: int
+
+
 class AIProviderDriver(Protocol):
     async def probe(self) -> AIProviderProbeResult: ...
+
+
+class SandboxInferenceDriver(Protocol):
+    async def sandbox_infer(self) -> AIProviderInferenceResult: ...
 
 
 class _CredentialBoundDriver:
@@ -130,6 +179,49 @@ class _CredentialBoundDriver:
         if not value.strip():
             raise ProviderConfigurationError("ai_provider_api_key_missing")
         return value
+
+    def _sandbox_token_limit(self, *, default: int) -> int:
+        value = self._config.max_output_tokens or default
+        if value < 1 or value > SANDBOX_MAX_OUTPUT_TOKENS_LIMIT:
+            raise ProviderConfigurationError("ai_provider_sandbox_token_limit_invalid")
+        if self._config.store:
+            raise ProviderConfigurationError("ai_provider_sandbox_store_must_be_false")
+        if self._config.retries > 1:
+            raise ProviderConfigurationError("ai_provider_sandbox_retries_exceeded")
+        return value
+
+    @staticmethod
+    def _sandbox_result(
+        *,
+        config: AIProviderConfig,
+        endpoint_host: str,
+        output_text: str,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None,
+        max_output_tokens: int,
+        latency_ms: int,
+    ) -> AIProviderInferenceResult:
+        normalized_output = output_text.strip()
+        return AIProviderInferenceResult(
+            role=config.role,
+            provider=config.provider,
+            model=config.model,
+            endpoint_host=endpoint_host,
+            authenticated=True,
+            inference_executed=True,
+            synthetic_data_only=True,
+            business_data_sent=False,
+            store_enabled=False,
+            expected_output_match=normalized_output == SANDBOX_EXPECTED_OUTPUT,
+            output_sha256=hashlib.sha256(normalized_output.encode("utf-8")).hexdigest(),
+            output_length_chars=len(normalized_output),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            max_output_tokens=max_output_tokens,
+            latency_ms=latency_ms,
+        )
 
 
 class _OpenAICompatibleModelsDriver(_CredentialBoundDriver):
@@ -166,8 +258,14 @@ class _OpenAICompatibleModelsDriver(_CredentialBoundDriver):
         ):
             raise ProviderConfigurationError(self.policy_error)
 
-    async def probe(self) -> AIProviderProbeResult:
-        api_key = self._api_key_value()
+    async def _request(
+        self,
+        *,
+        method: str,
+        path: str,
+        headers: dict[str, str],
+        json_body: dict[str, Any] | None = None,
+    ) -> httpx.Response:
         timeout = httpx.Timeout(self._config.timeout_seconds)
         async with httpx.AsyncClient(
             base_url=self._config.base_url.rstrip("/"),
@@ -175,18 +273,45 @@ class _OpenAICompatibleModelsDriver(_CredentialBoundDriver):
             timeout=timeout,
             follow_redirects=False,
         ) as client:
-            try:
-                response = await client.get(
-                    "models",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
-                raise ProviderConfigurationError("ai_provider_connectivity_failure") from exc
+            for attempt in range(self._config.retries + 1):
+                try:
+                    response = await client.request(
+                        method,
+                        path,
+                        headers=headers,
+                        json=json_body,
+                    )
+                except (httpx.TimeoutException, httpx.TransportError) as exc:
+                    if attempt < self._config.retries:
+                        continue
+                    raise ProviderConfigurationError("ai_provider_connectivity_failure") from exc
+                if response.status_code in {429, 500, 502, 503, 504} and attempt < self._config.retries:
+                    continue
+                return response
+        raise AssertionError("unreachable")
 
+    @staticmethod
+    def _check_response_status(response: httpx.Response, *, operation: str) -> None:
         if response.status_code in {400, 401, 403}:
-            raise ProviderConfigurationError("ai_provider_authentication_failed")
+            code = (
+                "ai_provider_authentication_failed"
+                if response.status_code in {401, 403}
+                else f"ai_provider_{operation}_failed"
+            )
+            raise ProviderConfigurationError(code)
+        if response.status_code == 429:
+            raise ProviderConfigurationError("ai_provider_rate_limited")
         if response.status_code >= 400:
-            raise ProviderConfigurationError("ai_provider_probe_failed")
+            raise ProviderConfigurationError(f"ai_provider_{operation}_failed")
+
+    async def probe(self) -> AIProviderProbeResult:
+        api_key = self._api_key_value()
+        response = await self._request(
+            method="GET",
+            path="models",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        self._check_response_status(response, operation="probe")
         try:
             payload = response.json()
         except ValueError as exc:
@@ -212,21 +337,97 @@ class _OpenAICompatibleModelsDriver(_CredentialBoundDriver):
 
 
 class OpenAIResponsesDriver(_OpenAICompatibleModelsDriver):
-    """OpenAI provider boundary with a no-inference model-list probe."""
+    """OpenAI boundary. Real inference is restricted to the fixed synthetic sandbox probe."""
 
     provider_name = "openai"
     allowed_host = "api.openai.com"
     allowed_base_path = "/v1"
     policy_error = "openai_base_url_policy_violation"
 
+    async def sandbox_infer(self) -> AIProviderInferenceResult:
+        api_key = self._api_key_value()
+        max_output_tokens = self._sandbox_token_limit(default=128)
+        started = perf_counter()
+        response = await self._request(
+            method="POST",
+            path="responses",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json_body={
+                "model": self._config.model,
+                "input": SANDBOX_PROMPT,
+                "max_output_tokens": max_output_tokens,
+                "store": False,
+            },
+        )
+        latency_ms = max(0, round((perf_counter() - started) * 1000))
+        self._check_response_status(response, operation="inference")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ProviderConfigurationError("ai_provider_invalid_inference_response") from exc
+        if not isinstance(payload, dict):
+            raise ProviderConfigurationError("ai_provider_invalid_inference_response")
+
+        output_text = _extract_openai_output_text(payload)
+        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        return self._sandbox_result(
+            config=self._config,
+            endpoint_host=self.allowed_host,
+            output_text=output_text,
+            input_tokens=_optional_int(usage.get("input_tokens")),
+            output_tokens=_optional_int(usage.get("output_tokens")),
+            total_tokens=_optional_int(usage.get("total_tokens")),
+            max_output_tokens=max_output_tokens,
+            latency_ms=latency_ms,
+        )
+
 
 class ZAIDriver(_OpenAICompatibleModelsDriver):
-    """Z.AI OpenAI-compatible boundary for GLM agents, without inference in the probe."""
+    """Z.AI boundary. Sandbox inference disables thinking and sends synthetic text only."""
 
     provider_name = "zai"
     allowed_host = "api.z.ai"
     allowed_base_path = "/api/paas/v4"
     policy_error = "zai_base_url_policy_violation"
+
+    async def sandbox_infer(self) -> AIProviderInferenceResult:
+        api_key = self._api_key_value()
+        max_output_tokens = self._sandbox_token_limit(default=64)
+        started = perf_counter()
+        response = await self._request(
+            method="POST",
+            path="chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json_body={
+                "model": self._config.model,
+                "messages": [{"role": "user", "content": SANDBOX_PROMPT}],
+                "thinking": {"type": "disabled"},
+                "stream": False,
+                "max_tokens": max_output_tokens,
+                "temperature": 0.0,
+            },
+        )
+        latency_ms = max(0, round((perf_counter() - started) * 1000))
+        self._check_response_status(response, operation="inference")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ProviderConfigurationError("ai_provider_invalid_inference_response") from exc
+        if not isinstance(payload, dict):
+            raise ProviderConfigurationError("ai_provider_invalid_inference_response")
+
+        output_text = _extract_zai_output_text(payload)
+        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        return self._sandbox_result(
+            config=self._config,
+            endpoint_host=self.allowed_host,
+            output_text=output_text,
+            input_tokens=_optional_int(usage.get("prompt_tokens")),
+            output_tokens=_optional_int(usage.get("completion_tokens")),
+            total_tokens=_optional_int(usage.get("total_tokens")),
+            max_output_tokens=max_output_tokens,
+            latency_ms=latency_ms,
+        )
 
 
 class GeminiDriver(_CredentialBoundDriver):
@@ -309,6 +510,55 @@ class GeminiDriver(_CredentialBoundDriver):
             inference_executed=False,
             business_data_sent=False,
         )
+
+    async def sandbox_infer(self) -> AIProviderInferenceResult:
+        raise ProviderConfigurationError("ai_provider_sandbox_inference_not_supported")
+
+
+def _optional_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def _extract_openai_output_text(payload: dict[str, Any]) -> str:
+    direct = payload.get("output_text")
+    if isinstance(direct, str) and direct:
+        return direct
+    output = payload.get("output")
+    if not isinstance(output, list):
+        raise ProviderConfigurationError("ai_provider_invalid_inference_response")
+    parts: list[str] = []
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
+            if part.get("type") == "output_text" and isinstance(text, str):
+                parts.append(text)
+    if not parts:
+        raise ProviderConfigurationError("ai_provider_invalid_inference_response")
+    return "".join(parts)
+
+
+def _extract_zai_output_text(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ProviderConfigurationError("ai_provider_invalid_inference_response")
+    first = choices[0]
+    if not isinstance(first, dict):
+        raise ProviderConfigurationError("ai_provider_invalid_inference_response")
+    message = first.get("message")
+    if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+        raise ProviderConfigurationError("ai_provider_invalid_inference_response")
+    return message["content"]
 
 
 DriverFactory = Callable[[AIProviderConfig], AIProviderDriver]
