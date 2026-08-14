@@ -123,6 +123,21 @@ class RealReadOAuthSettings:
             raise PermissionError("mercadolivre_real_read_disabled")
 
 
+def _parse_and_validate_read_only_scopes(raw_scope: Any) -> tuple[str, ...]:
+    if isinstance(raw_scope, str):
+        scopes = tuple(part for part in raw_scope.replace(",", " ").split() if part)
+    elif isinstance(raw_scope, list):
+        scopes = tuple(str(part) for part in raw_scope if str(part))
+    else:
+        scopes = ()
+    normalized = {scope.strip().lower() for scope in scopes if scope.strip()}
+    if "write" in normalized:
+        raise RealReadOAuthError("mercadolivre_real_oauth_write_scope_rejected")
+    if "read" not in normalized:
+        raise RealReadOAuthError("mercadolivre_real_oauth_read_scope_missing")
+    return tuple(sorted(normalized))
+
+
 class MercadoLivreRealOAuthClient:
     """OAuth-only client. It exposes no marketplace mutation operation."""
 
@@ -228,13 +243,7 @@ class MercadoLivreRealOAuthClient:
             raise RealReadOAuthError("mercadolivre_real_oauth_expiry_invalid") from exc
         if lifetime <= 0:
             raise RealReadOAuthError("mercadolivre_real_oauth_expiry_invalid")
-        raw_scope = payload.get("scope")
-        if isinstance(raw_scope, str):
-            scopes = tuple(part for part in raw_scope.replace(",", " ").split() if part)
-        elif isinstance(raw_scope, list):
-            scopes = tuple(str(part) for part in raw_scope if str(part))
-        else:
-            scopes = ()
+        scopes = _parse_and_validate_read_only_scopes(payload.get("scope"))
         return RealOAuthTokenSet(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -345,6 +354,10 @@ class RealOAuthFinalizationStore:
         schema_fingerprint: str,
         finalized_at: datetime,
     ) -> tuple[int, bool]:
+        normalized_scopes = {scope.lower() for scope in scopes}
+        if "write" in normalized_scopes or "read" not in normalized_scopes:
+            raise PermissionError("mercadolivre_real_oauth_scope_policy_violation")
+
         credential = pg_insert(OAuthCredentialRecord).values(
             marketplace="mercadolivre",
             account_id=account_id,
@@ -414,6 +427,7 @@ class RealOAuthFinalizationStore:
                             "request_id": event.request_id,
                             "schema_fingerprint": schema_fingerprint,
                             "channel_event_persisted": event_persisted,
+                            "scope_policy": "read-only",
                         }
                     ),
                 )
