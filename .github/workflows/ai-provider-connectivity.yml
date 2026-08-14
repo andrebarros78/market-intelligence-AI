@@ -39,8 +39,9 @@ jobs:
         run: python scripts/probe_ai_provider.py --role system
 
   agents-zai:
-    # This model-list probe performs no inference. It is also the safe diagnostic
-    # used after a sandbox HTTP 429 to distinguish model/key access from inference quota.
+    # Z.AI authentication/endpoint are strict gates. The /models catalog is
+    # advisory for GLM-4.7-Flash because the free model may be callable even
+    # when it is absent from this catalog response.
     if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[IA-SANDBOX-RUN]')
     concurrency:
       group: api-ml-zai-external-agent-gate
@@ -66,4 +67,4 @@ jobs:
       - name: Install
         run: python -m pip install -e '.[dev]'
       - name: Probe profile 2 Z.AI agents without inference or business data
-        run: python scripts/probe_ai_provider.py --role agents
+        run: python scripts/probe_ai_provider.py --role agents --allow-model-unlisted
