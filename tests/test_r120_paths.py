@@ -79,7 +79,7 @@ async def test_authorization_header_override_is_rejected_before_transport() -> N
 
 
 @pytest.mark.asyncio
-async def test_path_traversal_identifier_and_secret_query_are_rejected_before_transport() -> None:
+async def test_path_identifier_query_and_header_secret_echo_are_rejected_before_transport() -> None:
     called = False
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -104,9 +104,20 @@ async def test_path_traversal_identifier_and_secret_query_are_rejected_before_tr
             await adapter._read("/items/MLB1", params={"access_token": "attacker"})
         assert query.value.code == "mercadolivre_forbidden_query_parameter"
 
-        with pytest.raises(MercadoLivreReadError) as token_echo:
+        with pytest.raises(MercadoLivreReadError) as token_query_echo:
             await adapter._read("/visits/items", params={"ids": TOKEN})
-        assert token_echo.value.code == "mercadolivre_forbidden_query_parameter"
+        assert token_query_echo.value.code == "mercadolivre_forbidden_query_parameter"
+
+        with pytest.raises(MercadoLivreReadError) as token_path_echo:
+            await adapter.fetch_resource(f"/items/{TOKEN}")
+        assert token_path_echo.value.code == "mercadolivre_credential_echo_blocked"
+
+        with pytest.raises(MercadoLivreReadError) as token_header_echo:
+            await adapter._read(
+                "/items/MLB1",
+                headers={"Accept": f"application/json; debug={TOKEN}"},
+            )
+        assert token_header_echo.value.code == "mercadolivre_credential_echo_blocked"
         assert called is False
     finally:
         await adapter.aclose()
@@ -173,5 +184,8 @@ def test_adapter_subclass_cannot_redirect_base_url_to_other_host() -> None:
         base_url = "https://evil.example"
 
     with pytest.raises(MercadoLivreReadError) as caught:
-        EvilHostAdapter(access_token=TOKEN, transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+        EvilHostAdapter(
+            access_token=TOKEN,
+            transport=httpx.MockTransport(lambda request: httpx.Response(200)),
+        )
     assert caught.value.code == "mercadolivre_base_url_policy_violation"
