@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import sys
@@ -7,13 +8,19 @@ import sys
 from market_intelligence.ai import AIProviderConfig, ProviderConfigurationError, ProviderManager
 
 
-async def _run() -> int:
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Probe an AI provider without inference or business data.")
+    parser.add_argument("--role", choices=("system", "agents"), default="system")
+    return parser
+
+
+async def _run(role: str) -> int:
     try:
-        config = AIProviderConfig.from_env()
+        config = AIProviderConfig.from_env(role=role)
         driver = ProviderManager().build(config)
         result = await driver.probe()
     except ProviderConfigurationError as exc:
-        print(json.dumps({"status": "failed", "code": exc.code}, sort_keys=True))
+        print(json.dumps({"status": "failed", "role": role, "code": exc.code}, sort_keys=True))
         return 2
 
     payload = result.model_dump(mode="json")
@@ -23,4 +30,5 @@ async def _run() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(_run()))
+    args = _parser().parse_args()
+    sys.exit(asyncio.run(_run(args.role)))
