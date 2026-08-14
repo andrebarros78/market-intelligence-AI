@@ -15,7 +15,7 @@ Os perfis são nomeados de forma uniforme:
 Para os testes atuais:
 
 - perfil 1: OpenAI / GPT / sistema;
-- perfil 2: Z.AI / GLM / agentes;
+- perfil 2: Z.AI / GLM-4.7-Flash / agentes;
 - perfis 3, 4 e 5: disponíveis e desativados até configuração futura.
 
 A seleção operacional é feita por:
@@ -86,7 +86,7 @@ Durante a migração, se `PROFILE_1` e `PROFILE_2` ainda não estiverem preenchi
 - `MI_AI_SYSTEM_*` → perfil 1;
 - `MI_AI_AGENTS_*` → perfil 2.
 
-Isso preserva as conexões autenticadas já comprovadas de GPT e Z.AI enquanto o Environment é migrado gradualmente para o formato de cinco perfis.
+Isso preserva as conexões autenticadas de GPT e Z.AI enquanto o Environment é migrado gradualmente para o formato de cinco perfis.
 
 Quando os novos campos forem preenchidos, eles passam a ter precedência e a ponte antiga deixa de ser usada naquele slot.
 
@@ -106,9 +106,9 @@ Quando os novos campos forem preenchidos, eles passam a ter precedência e a pon
 ### Perfil 2 — Agentes
 
 - `ENABLED=true`
-- `NAME=Agents GLM`
+- `NAME=Agents GLM-4.7-Flash`
 - `PROVIDER=zai`
-- `MODEL=glm-5.1`
+- `MODEL=glm-4.7-flash`
 - `BASE_URL=https://api.z.ai/api/paas/v4`
 - `PROTOCOL=openai-compatible`
 - `AUTH_TYPE=api_key`
@@ -128,5 +128,5 @@ O cofre de cinco perfis é aprovado quando:
 - sistema e agentes podem selecionar slots diferentes;
 - perfis não compartilham segredos;
 - dados confidenciais não aparecem no status público;
-- a configuração antiga de GPT/Z.AI continua funcionando durante a migração;
+- a configuração de GPT/Z.AI continua funcionando durante a migração;
 - CI integral permanece verde.
