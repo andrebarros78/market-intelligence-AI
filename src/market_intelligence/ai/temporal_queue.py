@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Any, Mapping
 
 from temporalio.client import Client, WorkflowHandle
 from temporalio.common import WorkflowIDReusePolicy
 
+from market_intelligence.ai.data_gateway import AI_DATA_GATEWAY, AIDataGateway
+from market_intelligence.ai.inference_contract import build_minimized_inference_prompt
 from market_intelligence.ai.providers import AI_ROLES, ProviderConfigurationError
-from market_intelligence.workflows.names import WORKFLOW_AI_SANDBOX
+from market_intelligence.workflows.names import WORKFLOW_AI_MINIMIZED, WORKFLOW_AI_SANDBOX
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,17 +65,36 @@ def ai_workflow_id(*, request_id: str, role: str) -> str:
 
 
 def build_sandbox_ai_job(*, request_id: str, role: str) -> dict[str, str]:
-    """Build the only IA-03 payload allowed before the data gateway exists.
-
-    The original request id is deliberately not stored in Temporal history and
-    arbitrary prompts are not accepted at this phase.
-    """
-
     normalized_role = role.strip().lower()
     return {
         "request_key": ai_request_key(request_id=request_id, role=normalized_role),
         "role": normalized_role,
         "mode": "sandbox",
+    }
+
+
+def build_minimized_ai_job(
+    *,
+    request_id: str,
+    role: str,
+    purpose: str,
+    data: Mapping[str, Any],
+    gateway: AIDataGateway = AI_DATA_GATEWAY,
+) -> dict[str, Any]:
+    """Minimize data before it can enter Temporal Workflow history."""
+
+    normalized_role = role.strip().lower()
+    ai_queue_config(normalized_role)
+    minimized = gateway.minimize(purpose=purpose, data=data)
+    # Build the IA-05 contract locally as an additional gate. The prompt itself is
+    # deliberately NOT added to Temporal history; Activity rebuilds it from the
+    # attested minimized envelope.
+    build_minimized_inference_prompt(minimized)
+    return {
+        "request_key": ai_request_key(request_id=request_id, role=normalized_role),
+        "role": normalized_role,
+        "mode": "minimized",
+        "gateway_result": minimized.model_dump(mode="json"),
     }
 
 
@@ -82,16 +104,38 @@ async def start_sandbox_ai_job(
     request_id: str,
     role: str,
 ) -> WorkflowHandle:
-    """Start one durable AI sandbox job with duplicate workflow IDs rejected.
-
-    Reusing the same request id for the same role produces the same workflow id,
-    so Temporal rejects a second execution even after the first one completed.
-    """
-
     queue = ai_queue_config(role)
     payload = build_sandbox_ai_job(request_id=request_id, role=role)
     return await client.start_workflow(
         WORKFLOW_AI_SANDBOX,
+        payload,
+        id=ai_workflow_id(request_id=request_id, role=role),
+        task_queue=queue.task_queue,
+        id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+    )
+
+
+async def start_minimized_ai_job(
+    client: Client,
+    *,
+    request_id: str,
+    role: str,
+    purpose: str,
+    data: Mapping[str, Any],
+    gateway: AIDataGateway = AI_DATA_GATEWAY,
+) -> WorkflowHandle:
+    """Start a durable AI job after mandatory minimization outside Temporal."""
+
+    queue = ai_queue_config(role)
+    payload = build_minimized_ai_job(
+        request_id=request_id,
+        role=role,
+        purpose=purpose,
+        data=data,
+        gateway=gateway,
+    )
+    return await client.start_workflow(
+        WORKFLOW_AI_MINIMIZED,
         payload,
         id=ai_workflow_id(request_id=request_id, role=role),
         task_queue=queue.task_queue,
