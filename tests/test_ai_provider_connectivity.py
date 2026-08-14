@@ -64,13 +64,13 @@ async def test_zai_probe_uses_bearer_and_no_inference() -> None:
         return httpx.Response(
             200,
             request=request,
-            json={"object": "list", "data": [{"id": "glm-5.1", "object": "model"}]},
+            json={"object": "list", "data": [{"id": "glm-4.7-flash", "object": "model"}]},
         )
 
     config = AIProviderConfig(
         role="agents",
         provider="zai",
-        model="glm-5.1",
+        model="glm-4.7-flash",
         base_url="https://api.z.ai/api/paas/v4",
         api_key=SecretStr("synthetic-zai-credential"),
     )
@@ -143,7 +143,7 @@ def test_zai_driver_rejects_credential_exfiltration_host() -> None:
     config = AIProviderConfig(
         role="agents",
         provider="zai",
-        model="glm-5.1",
+        model="glm-4.7-flash",
         base_url="https://attacker.invalid/api/paas/v4",
         api_key=SecretStr("synthetic-zai-credential"),
     )
@@ -181,7 +181,7 @@ def test_system_defaults_to_gpt_and_agents_default_to_zai(monkeypatch: pytest.Mo
     assert system.model == "gpt-5-mini"
     assert system.base_url == "https://api.openai.com/v1"
     assert agents.provider == "zai"
-    assert agents.model == "glm-5.1"
+    assert agents.model == "glm-4.7-flash"
     assert agents.base_url == "https://api.z.ai/api/paas/v4"
 
 
@@ -190,7 +190,7 @@ def test_system_and_agents_read_separate_provider_credentials(monkeypatch: pytes
     monkeypatch.setenv("MI_AI_SYSTEM_MODEL", "gpt-5-mini")
     monkeypatch.setenv("MI_AI_SYSTEM_API_KEY", "system-openai-secret")
     monkeypatch.setenv("MI_AI_AGENTS_PROVIDER", "zai")
-    monkeypatch.setenv("MI_AI_AGENTS_MODEL", "glm-5.1")
+    monkeypatch.setenv("MI_AI_AGENTS_MODEL", "glm-4.7-flash")
     monkeypatch.setenv("MI_AI_AGENTS_API_KEY", "agents-zai-secret")
 
     system = AIProviderConfig.from_env(role="system")

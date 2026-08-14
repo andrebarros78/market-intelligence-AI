@@ -33,9 +33,9 @@ def _configure_two_profiles(monkeypatch) -> None:
     monkeypatch.setenv("MI_AI_PROFILE_1_API_KEY", "system-profile-secret")
 
     monkeypatch.setenv("MI_AI_PROFILE_2_ENABLED", "true")
-    monkeypatch.setenv("MI_AI_PROFILE_2_NAME", "Agents GLM")
+    monkeypatch.setenv("MI_AI_PROFILE_2_NAME", "Agents GLM-4.7-Flash")
     monkeypatch.setenv("MI_AI_PROFILE_2_PROVIDER", "zai")
-    monkeypatch.setenv("MI_AI_PROFILE_2_MODEL", "glm-5.1")
+    monkeypatch.setenv("MI_AI_PROFILE_2_MODEL", "glm-4.7-flash")
     monkeypatch.setenv("MI_AI_PROFILE_2_BASE_URL", "https://api.z.ai/api/paas/v4")
     monkeypatch.setenv("MI_AI_PROFILE_2_PROTOCOL", "openai-compatible")
     monkeypatch.setenv("MI_AI_PROFILE_2_AUTH_TYPE", "api_key")
@@ -73,7 +73,7 @@ def test_capabilities_exposes_vault_status_but_never_secret_values(monkeypatch) 
     assert ai["system"]["provider"] == "openai"
     assert ai["system"]["model"] == "gpt-5-mini"
     assert ai["agents"]["provider"] == "zai"
-    assert ai["agents"]["model"] == "glm-5.1"
+    assert ai["agents"]["model"] == "glm-4.7-flash"
     assert len(ai["profiles"]) == 5
     assert ai["profiles"][0]["api_key_configured"] is True
     assert ai["profiles"][1]["api_key_configured"] is True

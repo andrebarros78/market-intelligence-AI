@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   system-gpt-sandbox:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: INTELIGENCI DE MERCADO API
@@ -44,15 +45,19 @@ jobs:
         run: python scripts/sandbox_ai_inference.py --role system
 
   agents-zai-sandbox:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[IA-SANDBOX-RUN]')
+    concurrency:
+      group: api-ml-zai-external-agent-gate
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: INTELIGENCI DE MERCADO API
     env:
       MI_AI_AGENTS_PROFILE: '2'
       MI_AI_PROFILE_2_ENABLED: 'true'
-      MI_AI_PROFILE_2_NAME: Agents GLM
+      MI_AI_PROFILE_2_NAME: Agents GLM-4.7-Flash
       MI_AI_PROFILE_2_PROVIDER: zai
-      MI_AI_PROFILE_2_MODEL: glm-5.1
+      MI_AI_PROFILE_2_MODEL: glm-4.7-flash
       MI_AI_PROFILE_2_BASE_URL: https://api.z.ai/api/paas/v4
       MI_AI_PROFILE_2_PROTOCOL: openai-compatible
       MI_AI_PROFILE_2_AUTH_TYPE: api_key
@@ -69,5 +74,5 @@ jobs:
           cache: pip
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: One fixed synthetic GLM inference
+      - name: One fixed synthetic GLM-4.7-Flash inference
         run: python scripts/sandbox_ai_inference.py --role agents

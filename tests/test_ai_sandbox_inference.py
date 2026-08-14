@@ -104,7 +104,7 @@ async def test_zai_sandbox_inference_disables_thinking_and_is_synthetic() -> Non
     config = AIProviderConfig(
         role="agents",
         provider="zai",
-        model="glm-5.1",
+        model="glm-4.7-flash",
         base_url="https://api.z.ai/api/paas/v4",
         api_key=SecretStr("synthetic-zai-credential"),
         max_output_tokens=64,
@@ -119,7 +119,7 @@ async def test_zai_sandbox_inference_disables_thinking_and_is_synthetic() -> Non
     assert seen["authorization"] == "Bearer synthetic-zai-credential"
     body = seen["body"]
     assert isinstance(body, dict)
-    assert body["model"] == "glm-5.1"
+    assert body["model"] == "glm-4.7-flash"
     assert body["messages"] == [{"role": "user", "content": SANDBOX_PROMPT}]
     assert body["thinking"] == {"type": "disabled"}
     assert body["stream"] is False
