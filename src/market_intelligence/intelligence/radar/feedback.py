@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class OutcomeClassification(StrEnum):
@@ -29,6 +29,8 @@ class OutcomeSource(StrEnum):
 
 
 class AlertOutcomeSubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     classification: OutcomeClassification
     cause_classification: CauseClassification | None = None
     decided_at: datetime
