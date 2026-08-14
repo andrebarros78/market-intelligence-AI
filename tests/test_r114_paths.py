@@ -33,10 +33,8 @@ def _payload() -> dict:
     return observation.model_dump(mode="json")
 
 
-def _iad_payload() -> dict:
-    payload = _payload()
-    payload["entity_id"] = "R116-PATH"
-    payload["context"]["iad_calibration"] = {
+def _iad_profile() -> dict:
+    return {
         "version": "historical-fixture-v1",
         "source_type": "historical_validation",
         "weights": {
@@ -51,6 +49,11 @@ def _iad_payload() -> dict:
         "negative_count": 10,
         "metrics": {"balanced_accuracy": 0.9},
     }
+
+
+def _iad_payload() -> dict:
+    payload = _payload()
+    payload["entity_id"] = "R116-PATH"
     return payload
 
 
@@ -124,19 +127,36 @@ def test_radar_activity_preserves_channel_regime_correlation() -> None:
     assert result["attributes"]["internal_platform_cause_confirmed"] is False
 
 
-def test_http_radar_evaluate_exposes_calibrated_iad() -> None:
-    response = TestClient(create_app(Settings())).post("/v1/radar/evaluate", json=_iad_payload())
+def test_http_request_cannot_self_promote_iad_profile() -> None:
+    payload = _iad_payload()
+    payload["context"]["iad_calibration"] = _iad_profile()
+    response = TestClient(create_app(Settings())).post("/v1/radar/evaluate", json=payload)
+    assert response.status_code == 200
+    assert all(
+        item["detector"] != "distribution_anomaly_index_v1"
+        for item in response.json()["detector_results"]
+    )
+
+
+def test_http_radar_evaluate_exposes_runtime_trusted_calibrated_iad() -> None:
+    response = TestClient(
+        create_app(Settings(), iad_profile=_iad_profile())
+    ).post("/v1/radar/evaluate", json=_iad_payload())
     assert response.status_code == 200
     result = _iad(response.json()["detector_results"])
     assert result["level"] == "inference"
     assert result["attributes"]["iad_decision"] is True
     assert result["attributes"]["calibration_version"] == "historical-fixture-v1"
+    assert result["attributes"]["calibration_trust"] == "trusted_runtime"
     assert result["attributes"]["causal_claim"] is False
 
 
-def test_radar_activity_preserves_calibrated_iad() -> None:
-    finding = asyncio.run(RadarActivities(build_default_radar()).evaluate(_iad_payload()))
+def test_radar_activity_preserves_runtime_trusted_calibrated_iad() -> None:
+    finding = asyncio.run(
+        RadarActivities(build_default_radar(iad_profile=_iad_profile())).evaluate(_iad_payload())
+    )
     result = _iad(finding["detector_results"])
     assert result["attributes"]["alert_eligible"] is True
     assert result["attributes"]["component_count"] == 2
+    assert result["attributes"]["calibration_trust"] == "trusted_runtime"
     assert result["attributes"]["internal_platform_cause_confirmed"] is False
