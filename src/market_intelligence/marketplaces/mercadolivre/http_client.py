@@ -7,6 +7,10 @@ from typing import Any, Mapping
 import httpx
 from pydantic import SecretStr
 
+from market_intelligence.core.security import (
+    MODULE01_SECURITY_POLICY,
+    OperationalSecurityViolation,
+)
 from market_intelligence.ingestion.channel import ChannelEvent
 from market_intelligence.ingestion.events import RawEvent
 from market_intelligence.marketplaces.base import (
@@ -109,13 +113,20 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
         network_allowed: bool = False,
         timeout_seconds: float = 20.0,
     ) -> None:
+        try:
+            MODULE01_SECURITY_POLICY.validate_base_url(self.base_url)
+        except OperationalSecurityViolation as exc:
+            raise MercadoLivreReadError(exc.code, retryable=False) from exc
+
         self._token = (
             access_token
             if isinstance(access_token, SecretStr)
             else SecretStr(access_token) if access_token else None
         )
         self._network_allowed = network_allowed
-        self._synthetic_transport = transport is not None
+        # Only HTTPX MockTransport is implicitly trusted as non-network transport.
+        # Any other custom transport requires explicit network_allowed=True.
+        self._synthetic_transport = isinstance(transport, httpx.MockTransport)
         self._client: httpx.AsyncClient | None = None
         if transport is not None:
             self._client = httpx.AsyncClient(
@@ -134,6 +145,16 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
     async def aclose(self) -> None:
         if self._client is not None:
             await self._client.aclose()
+
+    @staticmethod
+    def _security_error(exc: OperationalSecurityViolation) -> MercadoLivreReadError:
+        return MercadoLivreReadError(exc.code, retryable=False)
+
+    def _safe_identifier(self, value: str) -> str:
+        try:
+            return MODULE01_SECURITY_POLICY.validate_identifier(value)
+        except OperationalSecurityViolation as exc:
+            raise self._security_error(exc) from exc
 
     def _require_transport(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -155,19 +176,43 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
         headers: Mapping[str, str] | None = None,
         attempt: int = 1,
     ) -> MercadoLivreReadResult:
-        if not path.startswith("/") or path.startswith("//"):
-            raise MercadoLivreReadError("mercadolivre_invalid_resource_path", retryable=False)
+        try:
+            safe_path = MODULE01_SECURITY_POLICY.validate_resource_path(path)
+            safe_headers = MODULE01_SECURITY_POLICY.validate_additional_headers(headers)
+        except OperationalSecurityViolation as exc:
+            raise self._security_error(exc) from exc
+
         client = self._require_transport()
         token = self._token_value()
-        request_headers = {"Authorization": f"Bearer {token}"}
-        request_headers.update(dict(headers or {}))
+        try:
+            safe_params = MODULE01_SECURITY_POLICY.validate_query_params(
+                params,
+                access_token=token,
+            )
+        except OperationalSecurityViolation as exc:
+            raise self._security_error(exc) from exc
+
+        # Authorization is written last and cannot be overridden by caller headers.
+        request_headers = dict(safe_headers)
+        request_headers["Authorization"] = f"Bearer {token}"
+        request = client.build_request(
+            "GET",
+            safe_path,
+            params=safe_params or None,
+            headers=request_headers,
+        )
+        try:
+            MODULE01_SECURITY_POLICY.validate_outbound_request(request)
+        except OperationalSecurityViolation as exc:
+            raise self._security_error(exc) from exc
+
         started = monotonic()
         try:
-            response = await client.get(path, params=params, headers=request_headers)
+            response = await client.send(request)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             telemetry = build_channel_telemetry(
                 direction="outbound",
-                endpoint=path,
+                endpoint=safe_path,
                 status_code=None,
                 latency_ms=(monotonic() - started) * 1000,
                 attempts=attempt,
@@ -180,7 +225,7 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
 
         telemetry = build_channel_telemetry(
             direction="outbound",
-            endpoint=path,
+            endpoint=safe_path,
             headers=response.headers,
             status_code=response.status_code,
             latency_ms=(monotonic() - started) * 1000,
@@ -237,23 +282,28 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
         )
 
     async def read_listing(self, listing_id: str) -> MercadoLivreReadResult:
-        return await self._read(f"/items/{listing_id}")
+        return await self._read(f"/items/{self._safe_identifier(listing_id)}")
 
     async def read_order(self, order_id: str) -> MercadoLivreReadResult:
-        return await self._read(f"/orders/{order_id}")
+        return await self._read(f"/orders/{self._safe_identifier(order_id)}")
 
     async def read_shipment(self, shipment_id: str) -> MercadoLivreReadResult:
         return await self._read(
-            f"/shipments/{shipment_id}", headers={"x-format-new": "true"}
+            f"/shipments/{self._safe_identifier(shipment_id)}",
+            headers={"x-format-new": "true"},
         )
 
     async def read_catalog_competition(self, item_id: str) -> MercadoLivreReadResult:
         return await self._read(
-            f"/items/{item_id}/price_to_win", params={"version": "v2"}
+            f"/items/{self._safe_identifier(item_id)}/price_to_win",
+            params={"version": "v2"},
         )
 
     async def read_visits(self, item_id: str) -> MercadoLivreReadResult:
-        return await self._read("/visits/items", params={"ids": item_id})
+        return await self._read(
+            "/visits/items",
+            params={"ids": self._safe_identifier(item_id)},
+        )
 
     async def get_listing(self, listing_id: str) -> dict[str, Any]:
         return (await self.read_listing(listing_id)).payload
