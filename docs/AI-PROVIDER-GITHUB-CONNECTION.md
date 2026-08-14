@@ -24,13 +24,13 @@ As credenciais são independentes e nunca são compartilhadas entre os dois pap�
 ### Agentes
 
 - provider: `zai`;
-- modelo padrão: `glm-5.1`;
+- modelo padrão: `glm-4.7-flash`;
 - base URL: `https://api.z.ai/api/paas/v4`;
 - secret: `MI_AI_AGENTS_API_KEY`;
 - autenticação: `Authorization: Bearer`;
 - protocolo: OpenAI-compatible.
 
-A escolha continua protegida pela camada de provider. A aplicação não depende estruturalmente de um único fornecedor; a configuração de produto atual é GPT para o sistema e GLM/Z.AI para os agentes.
+A escolha continua protegida pela camada de provider. A aplicação não depende estruturalmente de um único fornecedor; a configuração de produto atual é GPT para o sistema e GLM-4.7-Flash/Z.AI para os agentes.
 
 ## Variáveis previstas
 
@@ -40,7 +40,7 @@ Configurações não secretas:
 - `MI_AI_SYSTEM_MODEL=gpt-5-mini`
 - `MI_AI_SYSTEM_BASE_URL=https://api.openai.com/v1`
 - `MI_AI_AGENTS_PROVIDER=zai`
-- `MI_AI_AGENTS_MODEL=glm-5.1`
+- `MI_AI_AGENTS_MODEL=glm-4.7-flash`
 - `MI_AI_AGENTS_BASE_URL=https://api.z.ai/api/paas/v4`
 
 Secrets:
@@ -68,7 +68,7 @@ A prova usa somente `GET https://api.openai.com/v1/models`.
 
 ### Agentes Z.AI
 
-A Z.AI documenta endpoint geral `https://api.z.ai/api/paas/v4`, autenticação HTTP Bearer e compatibilidade com protocolo OpenAI. O probe utiliza o recurso de listagem de modelos do protocolo compatível e não executa geração de conteúdo.
+A Z.AI documenta endpoint geral `https://api.z.ai/api/paas/v4`, autenticação HTTP Bearer e compatibilidade com protocolo OpenAI. O modelo operacional atual é `glm-4.7-flash`. O probe utiliza o recurso de listagem de modelos do protocolo compatível e não executa geração de conteúdo.
 
 Os probes não enviam anúncios, pedidos, métricas ou outros dados de negócio e mantêm `inference_executed=false`.
 
@@ -92,6 +92,8 @@ O workflow autenticado possui dois jobs independentes:
 
 - `system-gpt`;
 - `agents-zai`.
+
+Chamadas externas Z.AI de conectividade e sandbox usam um grupo de concorrência comum para evitar duas requisições de validação competindo simultaneamente pela mesma cota.
 
 ## Critério para conexão real comprovada
 
