@@ -18,6 +18,9 @@ def _port_from_env() -> int:
 
 def main() -> None:
     # Loopback only. Public HTTPS exposure is a separately governed deployment step.
+    # Psycopg async mode cannot run on Windows' default ProactorEventLoop, so Uvicorn
+    # is given an explicit cross-platform loop factory that selects SelectorEventLoop
+    # on Windows and the platform default elsewhere.
     uvicorn.run(
         "market_intelligence.api.webhook_server:create_mercadolivre_webhook_app_from_env",
         factory=True,
@@ -27,6 +30,7 @@ def main() -> None:
         proxy_headers=False,
         server_header=False,
         log_level="info",
+        loop="market_intelligence.core.event_loop:psycopg_compatible_loop",
     )
 
 
