@@ -40,7 +40,7 @@ jobs:
       - name: Install
         run: python -m pip install -e '.[dev]'
       - name: Compile
-        run: python -m compileall -q src tests migrations
+        run: python -m compileall -q src tests migrations scripts
       - name: Migrate PostgreSQL
         run: alembic upgrade head
       - name: Validate migration drift
@@ -51,3 +51,5 @@ jobs:
           alembic upgrade head
       - name: Test
         run: pytest -q
+      - name: Radar V1 Digital Twin
+        run: python scripts/run_radar_digital_twin.py
