@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
 from market_intelligence.api.webhook_server import create_mercadolivre_webhook_app_from_env
 
@@ -35,3 +36,21 @@ def test_webhook_bootstrap_rejects_marketplace_write_configuration(
     monkeypatch.setenv("MI_ALLOW_MARKETPLACE_WRITES", "true")
     with pytest.raises(PermissionError):
         create_mercadolivre_webhook_app_from_env()
+
+
+def test_webhook_bootstrap_runs_lifespan_without_legacy_event_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _safe_runtime(monkeypatch)
+    monkeypatch.setenv(
+        "MI_DATABASE_URL",
+        "postgresql+psycopg://postgres:postgres@127.0.0.1:1/unused",
+    )
+    monkeypatch.setenv("MI_ML_APP_ID", "2767330231710080")
+
+    app = create_mercadolivre_webhook_app_from_env()
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
