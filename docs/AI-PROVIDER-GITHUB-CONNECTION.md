@@ -7,7 +7,7 @@ O API ML consome IA por contrato estável através do `ProviderManager`. GitHub 
 O projeto possui dois papéis de IA independentes:
 
 1. `system`: inteligência responsável pelo próprio sistema API ML — OpenAI/GPT;
-2. `agents`: capacidade de IA utilizada pelos agentes/workers autorizados — Google/Gemini.
+2. `agents`: capacidade de IA utilizada pelos agentes/workers autorizados — Z.AI/GLM.
 
 As credenciais são independentes e nunca são compartilhadas entre os dois papéis.
 
@@ -23,13 +23,14 @@ As credenciais são independentes e nunca são compartilhadas entre os dois pap�
 
 ### Agentes
 
-- provider: `gemini`;
-- modelo padrão: `gemini-3.6-flash`;
-- base URL: `https://generativelanguage.googleapis.com/v1beta`;
+- provider: `zai`;
+- modelo padrão: `glm-5.1`;
+- base URL: `https://api.z.ai/api/paas/v4`;
 - secret: `MI_AI_AGENTS_API_KEY`;
-- probe: `GET /v1beta/models` com `x-goog-api-key`.
+- autenticação: `Authorization: Bearer`;
+- protocolo: OpenAI-compatible.
 
-A escolha continua protegida por uma camada de provider. A aplicação não depende estruturalmente de um único fornecedor; a separação atual é uma configuração de produto: GPT para o sistema e Gemini para os agentes.
+A escolha continua protegida pela camada de provider. A aplicação não depende estruturalmente de um único fornecedor; a configuração de produto atual é GPT para o sistema e GLM/Z.AI para os agentes.
 
 ## Variáveis previstas
 
@@ -38,9 +39,9 @@ Configurações não secretas:
 - `MI_AI_SYSTEM_PROVIDER=openai`
 - `MI_AI_SYSTEM_MODEL=gpt-5-mini`
 - `MI_AI_SYSTEM_BASE_URL=https://api.openai.com/v1`
-- `MI_AI_AGENTS_PROVIDER=gemini`
-- `MI_AI_AGENTS_MODEL=gemini-3.6-flash`
-- `MI_AI_AGENTS_BASE_URL=https://generativelanguage.googleapis.com/v1beta`
+- `MI_AI_AGENTS_PROVIDER=zai`
+- `MI_AI_AGENTS_MODEL=glm-5.1`
+- `MI_AI_AGENTS_BASE_URL=https://api.z.ai/api/paas/v4`
 
 Secrets:
 
@@ -52,8 +53,9 @@ Compatibilidade temporária: `MI_AI_API_KEY`, `MI_AI_MODEL`, `MI_AI_BASE_URL`, `
 ## Implementação
 
 - `ProviderManager`: seleção de driver por configuração;
-- `OpenAIResponsesDriver`: driver atual do papel `system`;
-- `GeminiDriver`: driver atual do papel `agents`;
+- `OpenAIResponsesDriver`: driver do papel `system`;
+- `ZAIDriver`: driver do papel `agents`;
+- `GeminiDriver`: alternativa preservada, não padrão atual;
 - `AIProviderConfig.from_env(role="system"|"agents")`: configuração isolada por papel;
 - `scripts/probe_ai_provider.py --role system|agents`: prova de conectividade por papel;
 - `market_intelligence.ai.status`: status não secreto de runtime.
@@ -64,23 +66,20 @@ Compatibilidade temporária: `MI_AI_API_KEY`, `MI_AI_MODEL`, `MI_AI_BASE_URL`, `
 
 A prova usa somente `GET https://api.openai.com/v1/models`.
 
-Ela comprova autenticação e disponibilidade do modelo configurado sem executar inferência e sem enviar dados de negócio.
+### Agentes Z.AI
 
-### Agentes Gemini
+A Z.AI documenta endpoint geral `https://api.z.ai/api/paas/v4`, autenticação HTTP Bearer e compatibilidade com protocolo OpenAI. O probe utiliza o recurso de listagem de modelos do protocolo compatível e não executa geração de conteúdo.
 
-A prova usa somente `GET https://generativelanguage.googleapis.com/v1beta/models`.
-
-Ela comprova autenticação e disponibilidade do modelo configurado sem executar inferência e sem enviar dados de negócio.
+Os probes não enviam anúncios, pedidos, métricas ou outros dados de negócio e mantêm `inference_executed=false`.
 
 ## Segurança
 
-Os dois drivers:
+Os drivers:
 
 - recusam host arbitrário;
-- exigem HTTPS e base URL oficial;
+- exigem HTTPS e base URL oficial de cada provedor;
 - não seguem redirects;
 - não imprimem credencial;
-- não enviam anúncios, pedidos, métricas ou dados pessoais no probe;
 - retornam somente resultado sanitizado.
 
 A chave dos agentes nunca herda `MI_AI_SYSTEM_API_KEY` nem `MI_AI_API_KEY`.
@@ -92,9 +91,7 @@ O Environment usado é `INTELIGENCI DE MERCADO API`.
 O workflow autenticado possui dois jobs independentes:
 
 - `system-gpt`;
-- `agents-gemini`.
-
-Isso permite provar e diagnosticar cada credencial sem misturar fornecedores ou privilégios.
+- `agents-zai`.
 
 ## Critério para conexão real comprovada
 
