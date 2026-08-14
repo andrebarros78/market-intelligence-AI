@@ -5,7 +5,7 @@ import asyncio
 import json
 import sys
 
-from market_intelligence.ai import AIProviderConfig, ProviderConfigurationError, ProviderManager
+from market_intelligence.ai import AIVault, ProviderConfigurationError, ProviderManager
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -16,7 +16,7 @@ def _parser() -> argparse.ArgumentParser:
 
 async def _run(role: str) -> int:
     try:
-        config = AIProviderConfig.from_env(role=role)
+        config = AIVault.from_env().resolve(role=role)
         driver = ProviderManager().build(config)
         result = await driver.probe()
     except ProviderConfigurationError as exc:
