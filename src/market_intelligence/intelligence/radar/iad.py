@@ -223,10 +223,31 @@ class IADCalibrator:
 
 
 class DistributionAnomalyIndex:
-    """Calibrated, non-causal distribution anomaly indicator."""
+    """Calibrated, non-causal distribution anomaly indicator.
+
+    Production approval is a runtime trust decision. A request payload can
+    provide an experimental calibration, but it cannot self-declare a trusted
+    production profile.
+    """
 
     name = "distribution_anomaly_index_v1"
     version = "distribution-anomaly-index@1.0.0"
+
+    def __init__(
+        self,
+        *,
+        trusted_profile: IADCalibrationProfile | dict[str, Any] | None = None,
+    ) -> None:
+        if trusted_profile is None:
+            self._trusted_profile = None
+        elif isinstance(trusted_profile, IADCalibrationProfile):
+            self._trusted_profile = trusted_profile
+        else:
+            self._trusted_profile = IADCalibrationProfile.model_validate(trusted_profile)
+
+    @property
+    def trusted_profile(self) -> IADCalibrationProfile | None:
+        return self._trusted_profile
 
     @staticmethod
     def _metric(result: DetectorResult) -> str | None:
@@ -290,11 +311,12 @@ class DistributionAnomalyIndex:
             return 0.60 + 0.40 * ((raw_score - threshold) / max(1.0 - threshold, 1e-9))
         return 0.60 * (raw_score / max(threshold, 1e-9))
 
-    def evaluate(
+    def _profile(
         self,
         observation: RadarObservation,
-        results: list[DetectorResult],
-    ) -> DetectorResult | None:
+    ) -> tuple[IADCalibrationProfile, Literal["trusted_runtime", "request_experimental"]] | None:
+        if self._trusted_profile is not None:
+            return self._trusted_profile, "trusted_runtime"
         raw_profile = observation.context.get("iad_calibration")
         if not isinstance(raw_profile, dict):
             return None
@@ -302,6 +324,19 @@ class DistributionAnomalyIndex:
             profile = IADCalibrationProfile.model_validate(raw_profile)
         except ValidationError:
             return None
+        if profile.production_approved:
+            return None
+        return profile, "request_experimental"
+
+    def evaluate(
+        self,
+        observation: RadarObservation,
+        results: list[DetectorResult],
+    ) -> DetectorResult | None:
+        profile_result = self._profile(observation)
+        if profile_result is None:
+            return None
+        profile, profile_trust = profile_result
 
         components, sources = self.components(results)
         available_weights = {
@@ -314,19 +349,20 @@ class DistributionAnomalyIndex:
             components[name] * weight for name, weight in available_weights.items()
         ) / weight_total
         decision_score = self._decision_score(raw_score, profile.threshold)
-        anomaly_decision = raw_score >= profile.threshold
+        threshold_exceeded = raw_score >= profile.threshold
 
-        approved = profile.production_approved
+        approved = profile.production_approved and profile_trust == "trusted_runtime"
         level = EvidenceLevel.INFERENCE if approved else EvidenceLevel.HYPOTHESIS
         score = decision_score if approved else min(0.59, decision_score)
         attributes = {
             "pattern": "distribution_anomaly_index",
             "iad_score": raw_score,
             "iad_threshold": profile.threshold,
-            "iad_decision": anomaly_decision if approved else False,
+            "iad_decision": threshold_exceeded if approved else False,
             "alert_eligible": approved,
             "calibration_version": profile.version,
             "calibration_source_type": profile.source_type,
+            "calibration_trust": profile_trust,
             "production_approved": approved,
             "calibration_sample_count": profile.sample_count,
             "calibration_metrics": profile.metrics,
@@ -342,11 +378,11 @@ class DistributionAnomalyIndex:
         if approved:
             summary = (
                 "Calibrated distribution anomaly index exceeded its historical threshold"
-                if anomaly_decision
+                if threshold_exceeded
                 else "Calibrated distribution anomaly index remained below its historical threshold"
             )
         else:
-            summary = "Experimental IAD calculated with non-production calibration; no alert promotion"
+            summary = "Experimental IAD calculated with untrusted calibration; no alert promotion"
         return DetectorResult(
             detector=self.name,
             score=score,
