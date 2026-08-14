@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Protocol
 
 from market_intelligence.intelligence.radar.detectors import Detector
 from market_intelligence.intelligence.radar.models import DetectorResult, RadarFinding, RadarObservation
+
+
+class DerivedDetector(Protocol):
+    name: str
+
+    def evaluate(
+        self,
+        observation: RadarObservation,
+        results: list[DetectorResult],
+    ) -> DetectorResult | None: ...
 
 
 def _seasonally_expected_metrics(results: list[DetectorResult]) -> set[str]:
@@ -30,8 +41,15 @@ def _seasonal_false_positive(result: DetectorResult, expected: set[str]) -> bool
 
 
 class RadarService:
-    def __init__(self, detectors: Iterable[Detector], *, anomaly_threshold: float = 0.60) -> None:
+    def __init__(
+        self,
+        detectors: Iterable[Detector],
+        *,
+        derived_detectors: Iterable[DerivedDetector] = (),
+        anomaly_threshold: float = 0.60,
+    ) -> None:
         self._detectors = tuple(detectors)
+        self._derived_detectors = tuple(derived_detectors)
         self._anomaly_threshold = anomaly_threshold
 
     def evaluate(self, observation: RadarObservation) -> RadarFinding:
@@ -44,6 +62,10 @@ class RadarService:
         results = [
             result for result in observed if not _seasonal_false_positive(result, expected)
         ]
+        for detector in self._derived_detectors:
+            derived = detector.evaluate(observation, list(results))
+            if derived is not None:
+                results.append(derived)
         score = max((result.score for result in results), default=0.0)
         return RadarFinding(
             entity_id=observation.entity_id,
