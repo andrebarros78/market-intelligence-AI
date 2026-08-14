@@ -43,11 +43,17 @@ def test_prompt_is_deterministic_contains_only_minimized_payload_and_fixed_polic
     assert first.max_output_tokens == 384
     assert "listing-hash-01" in first.prompt
     assert "traffic_drop" in first.prompt
-    assert "Authorization" not in first.prompt
 
+    # Security assertions target the serialized minimized payload. The fixed
+    # policy text may legitimately name forbidden categories (for example
+    # buyer identities or credentials) while instructing the model not to use
+    # them, so searching the complete prompt would be a false positive.
     minimized_segment = first.prompt.split("MINIMIZED_DATA:\n", maxsplit=1)[1]
-    assert json.loads(minimized_segment) == source.payload
-    assert "buyer" not in json.dumps(source.payload, ensure_ascii=False).lower()
+    minimized_payload = json.loads(minimized_segment)
+    assert minimized_payload == source.payload
+    minimized_rendered = json.dumps(minimized_payload, ensure_ascii=False).lower()
+    assert "authorization" not in minimized_rendered
+    assert "buyer" not in minimized_rendered
 
 
 def test_prompt_rejects_untrusted_or_failed_gateway_attestation() -> None:
