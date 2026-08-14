@@ -10,6 +10,7 @@ from market_intelligence.api.feedback import build_feedback_router
 from market_intelligence.api.ingestion import build_synthetic_ingestion_router
 from market_intelligence.api.oauth import build_synthetic_oauth_router
 from market_intelligence.core.config import Settings
+from market_intelligence.core.security import MODULE01_SECURITY_POLICY
 from market_intelligence.intelligence.radar.factory import build_default_radar
 from market_intelligence.intelligence.radar.iad import IADCalibrationProfile
 from market_intelligence.intelligence.radar.investigation import ProgressiveInvestigationEngine
@@ -30,6 +31,9 @@ def create_app(
     feedback_sessions: async_sessionmaker[AsyncSession] | None = None,
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
+    # Sovereign Module 01 invariant: the process does not start with marketplace writes enabled.
+    cfg.assert_module01_operational_security()
+
     trusted_iad_profile = (
         iad_profile
         if isinstance(iad_profile, IADCalibrationProfile)
@@ -60,8 +64,9 @@ def create_app(
         return {
             "ready": True,
             "environment": cfg.environment,
-            "read_only": cfg.read_only,
-            "marketplace_writes": cfg.allow_marketplace_writes and not cfg.read_only,
+            "read_only": True,
+            "marketplace_writes": False,
+            "module01_security_policy": MODULE01_SECURITY_POLICY.version,
             "persistence_configured": bool(cfg.database_url),
             "temporal_enabled": cfg.temporal_enabled,
             "oauth_synthetic_configured": oauth_runtime is not None,
@@ -75,6 +80,25 @@ def create_app(
     def capabilities() -> dict[str, object]:
         return {
             "marketplaces": ["mercadolivre"],
+            "operational_security": {
+                "policy_version": MODULE01_SECURITY_POLICY.version,
+                "module01_read_only_runtime_locked": True,
+                "unsafe_write_configuration_rejected_at_startup": True,
+                "mercadolivre_allowed_methods": ["GET"],
+                "mercadolivre_allowed_host": MODULE01_SECURITY_POLICY.marketplace_host,
+                "mercadolivre_https_required": True,
+                "redirect_following": False,
+                "authorization_override_blocked": True,
+                "additional_header_allowlist": list(
+                    MODULE01_SECURITY_POLICY.allowed_additional_headers
+                ),
+                "resource_path_host_escape_blocked": True,
+                "resource_path_traversal_blocked": True,
+                "sensitive_query_parameters_blocked": True,
+                "custom_transport_requires_explicit_network_permission": True,
+                "scraping_fallback_enabled": False,
+                "real_marketplace_network_enabled": False,
+            },
             "mercadolivre_read_adapter": {
                 "implemented": True,
                 "default_network_mode": "blocked",
@@ -84,6 +108,7 @@ def create_app(
                 "partial_content_206": True,
                 "rate_limit_429": True,
                 "real_network_enabled": False,
+                "operational_security_guard": MODULE01_SECURITY_POLICY.version,
             },
             "persistence": {
                 "postgresql_schema": True,
