@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from market_intelligence.intelligence.radar.channel_regime import ChannelRegimeCorrelationDetector
 from market_intelligence.intelligence.radar.counterfactual import OperationalCounterfactualDetector
 from market_intelligence.intelligence.radar.detectors import (
@@ -8,6 +10,7 @@ from market_intelligence.intelligence.radar.detectors import (
     TemporalPatternDetector,
 )
 from market_intelligence.intelligence.radar.factor_attribution import ObservableFactorAttributionDetector
+from market_intelligence.intelligence.radar.iad import DistributionAnomalyIndex, IADCalibrationProfile
 from market_intelligence.intelligence.radar.multivariate import MultivariateRelationshipDetector
 from market_intelligence.intelligence.radar.regime import RegimeChangeDetector
 from market_intelligence.intelligence.radar.relational import RelationalControlDetector
@@ -16,7 +19,10 @@ from market_intelligence.intelligence.radar.seasonality import SeasonalityDetect
 from market_intelligence.intelligence.radar.service import RadarService
 
 
-def build_default_radar() -> RadarService:
+def build_default_radar(
+    *,
+    iad_profile: IADCalibrationProfile | dict[str, Any] | None = None,
+) -> RadarService:
     return RadarService(
         [
             KnownRuleDetector(),
@@ -30,5 +36,6 @@ def build_default_radar() -> RadarService:
             ObservableFactorAttributionDetector(),
             UnexplainedResidualDetector(),
             ChannelRegimeCorrelationDetector(),
-        ]
+        ],
+        derived_detectors=[DistributionAnomalyIndex(trusted_profile=iad_profile)],
     )

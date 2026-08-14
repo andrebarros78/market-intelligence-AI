@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -8,6 +9,7 @@ from market_intelligence.api.ingestion import build_synthetic_ingestion_router
 from market_intelligence.api.oauth import build_synthetic_oauth_router
 from market_intelligence.core.config import Settings
 from market_intelligence.intelligence.radar.factory import build_default_radar
+from market_intelligence.intelligence.radar.iad import IADCalibrationProfile
 from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
 from market_intelligence.workflows.contracts import WorkflowEngine
@@ -19,9 +21,17 @@ def create_app(
     oauth_runtime: SyntheticOAuthRuntime | None = None,
     oauth_refresh_engine: WorkflowEngine | None = None,
     ingestion_engine: WorkflowEngine | None = None,
+    iad_profile: IADCalibrationProfile | dict[str, Any] | None = None,
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
-    radar = build_default_radar()
+    trusted_iad_profile = (
+        iad_profile
+        if isinstance(iad_profile, IADCalibrationProfile)
+        else IADCalibrationProfile.model_validate(iad_profile)
+        if iad_profile is not None
+        else None
+    )
+    radar = build_default_radar(iad_profile=trusted_iad_profile)
     app = FastAPI(title="Market Intelligence IA", version="0.12.0")
 
     @app.get("/health")
@@ -101,6 +111,18 @@ def create_app(
                 "counterfactual": False,
                 "unexplained_residual_detector": True,
                 "unexplained_residual_detector_version": "unexplained-residual@1.0.0",
+                "distribution_anomaly_index": True,
+                "distribution_anomaly_index_version": "distribution-anomaly-index@1.0.0",
+                "iad_calibrator_version": "iad-calibrator@1.0.0",
+                "iad_requires_versioned_calibration": True,
+                "iad_runtime_profile_configured": trusted_iad_profile is not None,
+                "iad_production_calibrated": bool(
+                    trusted_iad_profile is not None and trusted_iad_profile.production_approved
+                ),
+                "iad_calibration_version": (
+                    trusted_iad_profile.version if trusted_iad_profile is not None else None
+                ),
+                "iad_causal_claim": False,
             },
             "channel_sensor": True,
             "channel_sensor_details": {
