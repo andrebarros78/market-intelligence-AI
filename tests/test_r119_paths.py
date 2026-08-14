@@ -10,7 +10,9 @@ from sqlalchemy import select
 from market_intelligence.api.app import create_app
 from market_intelligence.core.config import Settings
 from market_intelligence.core.contracts import Alert, EntityRef, Evidence, EvidenceLevel, Severity
+from market_intelligence.intelligence.radar.feedback import AlertOutcomeSubmission
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
+from market_intelligence.persistence.feedback import PostgresFeedbackRepository
 from market_intelligence.persistence.models import AlertRecord
 from market_intelligence.persistence.postgresql import PostgresAlertRepository
 
@@ -24,6 +26,7 @@ def test_r119_unconfigured_feedback_route_is_fail_closed() -> None:
             assert capabilities["radar"]["posterior_feedback"] is True
             assert capabilities["radar"]["posterior_feedback_persistence_configured"] is False
             assert capabilities["radar"]["posterior_feedback_request_can_promote"] is False
+            assert capabilities["radar"]["posterior_feedback_http_calibration_trusted"] is False
             response = await client.post(
                 f"/v1/internal/radar/alerts/{uuid4()}/outcomes",
                 json={
@@ -39,7 +42,7 @@ def test_r119_unconfigured_feedback_route_is_fail_closed() -> None:
 
 
 @pytest.mark.postgres
-def test_r119_http_feedback_cannot_self_promote_and_trusted_runtime_can_qualify() -> None:
+def test_r119_http_never_promotes_and_trusted_repository_path_can_qualify() -> None:
     url = os.getenv("TEST_DATABASE_URL")
     if not url:
         pytest.skip("database not configured")
@@ -78,16 +81,14 @@ def test_r119_http_feedback_cannot_self_promote_and_trusted_runtime_can_qualify(
                     )
                 ).scalar_one()
 
-            untrusted_app = create_app(
-                Settings(),
-                feedback_sessions=sessions,
-                feedback_trusted_for_calibration=False,
-            )
-            untrusted_transport = httpx.ASGITransport(app=untrusted_app)
-            async with httpx.AsyncClient(
-                transport=untrusted_transport,
-                base_url="http://test",
-            ) as client:
+            app = create_app(Settings(), feedback_sessions=sessions)
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                capabilities = (await client.get("/v1/system/capabilities")).json()
+                assert capabilities["radar"]["posterior_feedback_http_calibration_trusted"] is False
+                assert capabilities["radar"]["posterior_feedback_trusted_repository_path"] is True
+                assert capabilities["radar"]["posterior_feedback_auto_calibration"] is False
+
                 attempted_promotion = await client.post(
                     f"/v1/internal/radar/alerts/{alert_id}/outcomes",
                     json={
@@ -116,39 +117,35 @@ def test_r119_http_feedback_cannot_self_promote_and_trusted_runtime_can_qualify(
                 assert untrusted.status_code == 200
                 assert untrusted.json()["calibration_eligible"] is False
                 assert untrusted.json()["trusted_runtime"] is False
+                assert untrusted.json()["calibration_write_path"] == "untrusted_http"
 
-            trusted_app = create_app(
-                Settings(),
-                feedback_sessions=sessions,
-                feedback_trusted_for_calibration=True,
-            )
-            trusted_transport = httpx.ASGITransport(app=trusted_app)
-            async with httpx.AsyncClient(
-                transport=trusted_transport,
-                base_url="http://test",
-            ) as client:
-                capabilities = (await client.get("/v1/system/capabilities")).json()
-                assert capabilities["radar"]["posterior_feedback_trusted_runtime"] is True
-                assert capabilities["radar"]["posterior_feedback_auto_calibration"] is False
-
-                trusted = await client.post(
-                    f"/v1/internal/radar/alerts/{alert_id}/outcomes",
-                    json={
-                        "classification": "confirmed",
-                        "cause_classification": "external",
-                        "decided_at": (now + timedelta(minutes=10)).isoformat(),
-                        "source": "human",
-                        "actor": "trusted-reviewer",
-                        "reason_code": "validated_followup",
-                        "evidence_refs": ["evidence:r119:http:2"],
-                    },
+                empty_report = await client.get(
+                    "/v1/internal/radar/feedback/report",
+                    params={"detector_version": detector_version},
                 )
-                assert trusted.status_code == 200
-                assert trusted.json()["calibration_eligible"] is True
-                assert trusted.json()["trusted_runtime"] is True
-                assert trusted.json()["auto_calibration_applied"] is False
-                assert trusted.json()["platform_internal_cause_confirmed"] is False
+                assert empty_report.status_code == 200
+                assert empty_report.json()["total_latest_outcomes"] == 0
 
+            trusted_repository = PostgresFeedbackRepository(
+                sessions,
+                trusted_for_calibration=True,
+            )
+            trusted = await trusted_repository.record(
+                alert_id=alert_id,
+                submission=AlertOutcomeSubmission(
+                    classification="confirmed",
+                    cause_classification="external",
+                    decided_at=now + timedelta(minutes=10),
+                    source="human",
+                    actor="trusted-internal-reviewer",
+                    reason_code="validated_followup",
+                    evidence_refs=["evidence:r119:trusted:2"],
+                ),
+            )
+            assert trusted["calibration_eligible"] is True
+            assert trusted["platform_internal_cause_confirmed"] is False
+
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 history = await client.get(
                     f"/v1/internal/radar/alerts/{alert_id}/outcomes"
                 )
