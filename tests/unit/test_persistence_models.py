@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, inspect
 
 from market_intelligence.marketplaces.mercadolivre.oauth import db_models as _oauth_db_models  # noqa: F401
+from market_intelligence.persistence import feedback_models as _feedback_models  # noqa: F401
 from market_intelligence.persistence.models import Base
 
 
@@ -17,6 +18,7 @@ def test_operational_schema_can_be_materialized_in_memory() -> None:
         "evidence",
         "investigation_cases",
         "investigation_events",
+        "alert_outcomes",
         "oauth_states",
         "oauth_credentials",
         "oauth_audit",
@@ -68,3 +70,14 @@ def test_investigation_schema_has_active_case_and_event_dedupe_guards() -> None:
     assert "dedupe_key" in events.c
     assert "uq_investigation_cases_active_key" in case_unique
     assert "uq_investigation_events_dedupe_key" in event_unique
+
+
+def test_feedback_schema_is_append_only_and_idempotent() -> None:
+    outcomes = Base.metadata.tables["alert_outcomes"]
+    unique_names = {constraint.name for constraint in outcomes.constraints if constraint.name}
+    assert "dedupe_key" in outcomes.c
+    assert "calibration_eligible" in outcomes.c
+    assert "detector_version_snapshot" in outcomes.c
+    assert "causal_claim" in outcomes.c
+    assert "platform_internal_cause_confirmed" in outcomes.c
+    assert "uq_alert_outcomes_dedupe_key" in unique_names

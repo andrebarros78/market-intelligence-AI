@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from market_intelligence.api.feedback import build_feedback_router
 from market_intelligence.api.ingestion import build_synthetic_ingestion_router
 from market_intelligence.api.oauth import build_synthetic_oauth_router
 from market_intelligence.core.config import Settings
@@ -25,6 +27,7 @@ def create_app(
     ingestion_engine: WorkflowEngine | None = None,
     iad_profile: IADCalibrationProfile | dict[str, Any] | None = None,
     pyod_profile: PyODBenchmarkProfile | dict[str, Any] | None = None,
+    feedback_sessions: async_sessionmaker[AsyncSession] | None = None,
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
     trusted_iad_profile = (
@@ -64,6 +67,8 @@ def create_app(
             "oauth_synthetic_configured": oauth_runtime is not None,
             "oauth_refresh_workflow_configured": oauth_refresh_engine is not None,
             "synthetic_ingestion_workflow_configured": ingestion_engine is not None,
+            "posterior_feedback_persistence_configured": feedback_sessions is not None,
+            "posterior_feedback_http_calibration_trusted": False,
         }
 
     @app.get("/v1/system/capabilities")
@@ -92,6 +97,8 @@ def create_app(
                 "investigation_cases": True,
                 "investigation_timeline": True,
                 "investigation_event_idempotency": True,
+                "posterior_feedback_append_only": True,
+                "posterior_feedback_idempotency": True,
                 "oauth_state_single_consume": True,
                 "runtime_connection_configured": bool(cfg.database_url),
             },
@@ -118,6 +125,15 @@ def create_app(
                 "investigation_persistence": "postgresql_via_temporal_activity",
                 "investigation_http_mode": "stateless_preview",
                 "investigation_causal_claim": False,
+                "posterior_feedback": True,
+                "posterior_feedback_version": "posterior-feedback@1.0.0",
+                "posterior_feedback_persistence_configured": feedback_sessions is not None,
+                "posterior_feedback_http_calibration_trusted": False,
+                "posterior_feedback_trusted_repository_path": True,
+                "posterior_feedback_request_can_promote": False,
+                "posterior_feedback_auto_calibration": False,
+                "false_positive_metrics": True,
+                "feedback_causal_claim": False,
                 "temporal": True,
                 "temporal_detector": "temporal-pattern@1.0.0",
                 "seasonality": False,
@@ -202,6 +218,7 @@ def create_app(
 
     app.include_router(build_synthetic_oauth_router(oauth_runtime, oauth_refresh_engine))
     app.include_router(build_synthetic_ingestion_router(ingestion_engine))
+    app.include_router(build_feedback_router(feedback_sessions))
     return app
 
 
