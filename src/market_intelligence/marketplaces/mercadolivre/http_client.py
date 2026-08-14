@@ -286,6 +286,9 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
             missing_fields=missing_fields,
         )
 
+    async def read_user_me(self) -> MercadoLivreReadResult:
+        return await self._read("/users/me")
+
     async def read_listing(self, listing_id: str) -> MercadoLivreReadResult:
         return await self._read(f"/items/{self._safe_identifier(listing_id)}")
 
@@ -309,6 +312,9 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
             "/visits/items",
             params={"ids": self._safe_identifier(item_id)},
         )
+
+    async def get_user_me(self) -> dict[str, Any]:
+        return (await self.read_user_me()).payload
 
     async def get_listing(self, listing_id: str) -> dict[str, Any]:
         return (await self.read_listing(listing_id)).payload
