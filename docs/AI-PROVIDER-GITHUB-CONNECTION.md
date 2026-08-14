@@ -1,72 +1,100 @@
-# Conexão da API de IA ao API ML via GitHub
+# Conexão das APIs de IA ao API ML via GitHub
 
 ## Objetivo
 
-Preparar o API ML para consumir um provedor de IA por contrato estável, mantendo a credencial fora do código e usando o GitHub apenas como repositório/CI, não como barramento de runtime.
+O API ML consome IA por contrato estável através do `ProviderManager`. GitHub guarda código, CI e segredos; não é barramento de runtime.
+
+O projeto possui dois papéis de IA independentes:
+
+1. `system`: inteligência responsável pelo próprio sistema API ML;
+2. `agents`: capacidade de IA utilizada pelos agentes/workers autorizados.
+
+Os dois papéis podem usar Gemini, mas não compartilham a mesma credencial.
 
 ## Configuração atual
 
-- provider: `openai`;
-- model: `gpt-5-mini`;
-- base URL: `https://api.openai.com/v1`;
-- driver: `OpenAIResponsesDriver`;
-- armazenamento de resposta pretendido: desabilitado (`store=false`) quando a etapa de inferência for implementada;
-- retries pretendidos: `0` por padrão;
-- seleção de provider/model/base URL feita por configuração, não por acoplamento do restante do sistema.
+### Sistema
+
+- provider: `gemini`;
+- modelo padrão: `gemini-3.6-flash`;
+- base URL: `https://generativelanguage.googleapis.com/v1beta`;
+- secret: `MI_AI_SYSTEM_API_KEY`.
+
+### Agentes
+
+- provider: `gemini`;
+- modelo padrão: `gemini-3.6-flash`;
+- base URL: `https://generativelanguage.googleapis.com/v1beta`;
+- secret: `MI_AI_AGENTS_API_KEY`.
+
+A escolha do provedor e do modelo permanece configurável. OpenAI continua disponível como driver alternativo; não é dependência fixa da aplicação.
+
+## Variáveis previstas
+
+Configurações não secretas:
+
+- `MI_AI_SYSTEM_PROVIDER=gemini`
+- `MI_AI_SYSTEM_MODEL=gemini-3.6-flash`
+- `MI_AI_SYSTEM_BASE_URL=https://generativelanguage.googleapis.com/v1beta`
+- `MI_AI_AGENTS_PROVIDER=gemini`
+- `MI_AI_AGENTS_MODEL=gemini-3.6-flash`
+- `MI_AI_AGENTS_BASE_URL=https://generativelanguage.googleapis.com/v1beta`
+
+Secrets:
+
+- `MI_AI_SYSTEM_API_KEY`
+- `MI_AI_AGENTS_API_KEY`
+
+Compatibilidade temporária: os antigos `MI_AI_PROVIDER`, `MI_AI_MODEL`, `MI_AI_BASE_URL` e `MI_AI_API_KEY` podem ser usados apenas como fallback do papel `system`. O papel `agents` nunca reutiliza a chave do sistema nem a chave legada.
 
 ## Implementação
 
-- `market_intelligence.ai.ProviderManager`: contrato estável para selecionar drivers;
-- `market_intelligence.ai.OpenAIResponsesDriver`: driver atual;
-- `AIProviderConfig`: configuração por variáveis de ambiente;
-- `scripts/probe_ai_provider.py`: prova de conectividade sem inferência.
+- `ProviderManager`: seleção de driver por configuração;
+- `GeminiDriver`: driver Gemini atual;
+- `OpenAIResponsesDriver`: alternativa preservada;
+- `AIProviderConfig.from_env(role="system"|"agents")`: configuração isolada por papel;
+- `scripts/probe_ai_provider.py --role system|agents`: prova de conectividade por papel.
 
-## Probe seguro
+## Probe seguro Gemini
 
-A prova inicial usa somente `GET /v1/models`.
+A prova inicial usa somente `GET /v1beta/models` com o header `x-goog-api-key`.
 
 Ela comprova:
 
-1. que a credencial foi aceita pelo provedor;
-2. que o endpoint oficial respondeu;
-3. que o modelo configurado aparece entre os modelos disponíveis para aquela credencial.
+1. aceitação da credencial;
+2. resposta do host oficial;
+3. disponibilidade do modelo configurado para a credencial.
 
 Ela não:
 
 - executa inferência;
-- envia anúncios, pedidos, métricas ou outros dados de negócio;
-- grava a credencial em saída;
+- envia anúncios, pedidos, métricas ou qualquer dado de negócio;
+- imprime a credencial;
 - segue redirects;
-- aceita host arbitrário para o driver OpenAI.
+- aceita host arbitrário para o driver Gemini.
 
-O driver recusa base URL diferente de HTTPS + `api.openai.com` + `/v1`, evitando que uma configuração maliciosa redirecione a credencial para outro host.
+O driver recusa base URL diferente de HTTPS + `generativelanguage.googleapis.com` + `/v1beta`, reduzindo risco de exfiltração de credenciais por configuração maliciosa.
 
-## Credencial
+## Separação de credenciais
 
-Nome de ambiente esperado pelo código: `MI_AI_API_KEY`.
+A chave do sistema é exclusiva do papel `system`.
 
-A credencial deve existir somente como Secret/variável de ambiente protegida. Nunca deve ser salva em commit, arquivo `.env` versionado, issue, PR, log ou mensagem de chat.
+A chave dos agentes é exclusiva do papel `agents`.
+
+Se `MI_AI_AGENTS_API_KEY` estiver ausente, o papel de agentes falha fechado: ele não herda `MI_AI_SYSTEM_API_KEY` nem `MI_AI_API_KEY`.
 
 ## GitHub Actions
 
-O workflow autenticado não foi criado automaticamente nesta etapa porque a ação de escrita do conector recusou um arquivo que referenciava GitHub Secrets. Esse bloqueio não deve ser contornado por commits de baixo nível.
+O conector disponível nesta sessão permite confirmar a existência do ambiente GitHub, mas não possui permissão para listar os nomes/valores dos Environment Secrets. O workflow autenticado que referencia Secrets também não deve ser criado por bypass de baixo nível se a camada de segurança do conector bloquear essa escrita.
 
-Ponto seguro atual:
+## Critério para conexão real comprovada
 
-- código do Provider Manager: preparado;
-- probe sem inferência: preparado;
-- testes sintéticos: preparados;
-- credencial real: não recebida pelo ChatGPT e não versionada;
-- chamada externa real: não executada;
-- GitHub Secret: inserção ainda necessária por interface segura do GitHub;
-- workflow autenticado: pendente de uma ação de escrita de alto nível que aceite referência a Secret, ou configuração manual no GitHub.
+Cada papel só será marcado como conectado quando:
 
-## Critério para declarar conexão comprovada
-
-A conexão só pode ser declarada concluída quando:
-
-1. o Secret estiver configurado no GitHub;
-2. o probe executar no GitHub Actions sem revelar a credencial;
+1. seu Secret estiver configurado no GitHub;
+2. o probe correspondente rodar em ambiente autenticado;
 3. `authenticated=true`;
-4. `model_available=true` para o modelo configurado;
-5. nenhum dado de negócio tiver sido enviado durante o teste.
+4. `model_available=true`;
+5. `inference_executed=false` durante o probe;
+6. `business_data_sent=false` durante o probe;
+7. nenhuma credencial aparecer em log ou artefato.
