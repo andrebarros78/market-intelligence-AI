@@ -18,6 +18,7 @@ dependencies = [
   "cryptography==50.0.0",
   "numpy==2.5.2",
   "pyod==3.6.2",
+  "uvicorn==0.51.0",
 ]
 
 [project.optional-dependencies]
