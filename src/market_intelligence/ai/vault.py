@@ -178,6 +178,8 @@ class AIVaultProfile:
             store=self.store,
             retries=self.retries,
             timeout_seconds=self.timeout_seconds,
+            max_output_tokens=self.max_output_tokens,
+            temperature=self.temperature,
         )
 
     def public_status(self) -> dict[str, Any]:
@@ -288,6 +290,8 @@ def _legacy_profile(*, role: str, slot: int) -> AIVaultProfile:
         auth_type="api_key",
         timeout_seconds=config.timeout_seconds,
         retries=config.retries,
+        max_output_tokens=config.max_output_tokens,
+        temperature=config.temperature,
         store=config.store,
         api_key=config.api_key,
     )
