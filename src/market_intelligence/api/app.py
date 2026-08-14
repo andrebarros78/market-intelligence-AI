@@ -11,6 +11,7 @@ from market_intelligence.core.config import Settings
 from market_intelligence.intelligence.radar.factory import build_default_radar
 from market_intelligence.intelligence.radar.iad import IADCalibrationProfile
 from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
+from market_intelligence.intelligence.radar.pyod_ensemble import PyODBenchmarkProfile
 from market_intelligence.marketplaces.mercadolivre.oauth.runtime import SyntheticOAuthRuntime
 from market_intelligence.workflows.contracts import WorkflowEngine
 
@@ -22,6 +23,7 @@ def create_app(
     oauth_refresh_engine: WorkflowEngine | None = None,
     ingestion_engine: WorkflowEngine | None = None,
     iad_profile: IADCalibrationProfile | dict[str, Any] | None = None,
+    pyod_profile: PyODBenchmarkProfile | dict[str, Any] | None = None,
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
     trusted_iad_profile = (
@@ -31,7 +33,17 @@ def create_app(
         if iad_profile is not None
         else None
     )
-    radar = build_default_radar(iad_profile=trusted_iad_profile)
+    trusted_pyod_profile = (
+        pyod_profile
+        if isinstance(pyod_profile, PyODBenchmarkProfile)
+        else PyODBenchmarkProfile.model_validate(pyod_profile)
+        if pyod_profile is not None
+        else None
+    )
+    radar = build_default_radar(
+        iad_profile=trusted_iad_profile,
+        pyod_profile=trusted_pyod_profile,
+    )
     app = FastAPI(title="Market Intelligence IA", version="0.12.0")
 
     @app.get("/health")
@@ -123,6 +135,21 @@ def create_app(
                     trusted_iad_profile.version if trusted_iad_profile is not None else None
                 ),
                 "iad_causal_claim": False,
+                "pyod_ensemble": True,
+                "pyod_library_version": "3.6.2",
+                "pyod_ensemble_detector": "pyod-ensemble@1.0.0",
+                "pyod_benchmark_engine": "pyod-benchmark@1.0.0",
+                "pyod_candidate_detectors": ["ecod", "iforest", "knn"],
+                "pyod_requires_versioned_benchmark": True,
+                "pyod_request_can_promote": False,
+                "pyod_runtime_profile_configured": trusted_pyod_profile is not None,
+                "pyod_production_promoted": bool(
+                    trusted_pyod_profile is not None and trusted_pyod_profile.production_approved
+                ),
+                "pyod_profile_version": (
+                    trusted_pyod_profile.version if trusted_pyod_profile is not None else None
+                ),
+                "pyod_causal_claim": False,
             },
             "channel_sensor": True,
             "channel_sensor_details": {
