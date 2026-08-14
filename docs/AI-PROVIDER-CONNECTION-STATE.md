@@ -1,10 +1,12 @@
-# Estado da conexão Gemini
+# Estado da conexão das IAs
 
-Estado inicial desta etapa:
+Estado antes da prova autenticada final:
 
-- Provider Manager com Gemini/OpenAI: implementado;
-- Gemini separado em `system` e `agents`: implementado;
-- CI sintético anterior: aprovado;
+- Provider Manager com OpenAI/Gemini: implementado;
+- papel `system`: OpenAI/GPT;
+- papel `agents`: Google/Gemini;
+- credenciais separadas: implementado;
+- CI sintético da fundação anterior: aprovado;
 - Environment GitHub existente: `INTELIGENCI DE MERCADO API`;
 - valores dos Secrets: não acessíveis ao ChatGPT e não necessários;
 - workflow autenticado: preparado nesta etapa;
