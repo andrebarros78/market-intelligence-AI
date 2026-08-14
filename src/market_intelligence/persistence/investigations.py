@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from market_intelligence.intelligence.radar.investigation import (
     InvestigationState,
-    InvestigationStatus,
     ProgressiveInvestigationEngine,
 )
 from market_intelligence.intelligence.radar.models import RadarFinding, RadarObservation
@@ -63,10 +62,15 @@ def _event_result(
     *,
     inserted: bool,
 ) -> dict[str, Any]:
+    ignored_reason = None
+    if isinstance(event.evidence_summary, dict):
+        ignored_reason = event.evidence_summary.get("ignored_reason")
     return {
         "case_id": str(case.id),
         "event_id": str(event.id),
         "event_inserted": inserted,
+        "event_ignored": ignored_reason is not None,
+        "ignored_reason": ignored_reason,
         "active": case.active_key is not None,
         "status": case.status,
         "confidence": case.confidence,
@@ -96,6 +100,39 @@ def _event_result(
             "causal_claim": event.causal_claim,
         },
     }
+
+
+def _ignored_out_of_order_event(
+    *,
+    case: InvestigationCaseRecord,
+    dedupe_key: str,
+    observation: RadarObservation,
+    finding: RadarFinding,
+) -> InvestigationEventRecord:
+    return InvestigationEventRecord(
+        case_id=case.id,
+        dedupe_key=dedupe_key,
+        observed_at=observation.observed_at,
+        finding_hash=ProgressiveInvestigationEngine.finding_hash(finding),
+        status_before=case.status,
+        status_after=case.status,
+        anomalous=finding.anomalous,
+        finding_score=finding.score,
+        confidence_before=case.confidence,
+        confidence_after=case.confidence,
+        confidence_delta=0.0,
+        evidence_summary={
+            "ignored_reason": "out_of_order_observation",
+            "case_last_observed_at": case.last_observed_at.isoformat(),
+            "causal_claim": False,
+        },
+        hypotheses=case.hypotheses or [],
+        recommended_action=(
+            "Preservar a observação fora de ordem na trilha de auditoria sem regredir o estado progressivo."
+        ),
+        engine_version=case.engine_version,
+        causal_claim=False,
+    )
 
 
 class PostgresInvestigationRepository:
@@ -150,6 +187,45 @@ class PostgresInvestigationRepository:
                     .with_for_update()
                 )
             ).scalar_one_or_none()
+
+            if case is None:
+                latest_case = (
+                    await session.execute(
+                        select(InvestigationCaseRecord)
+                        .where(
+                            InvestigationCaseRecord.marketplace == marketplace,
+                            InvestigationCaseRecord.entity_type == entity_type,
+                            InvestigationCaseRecord.entity_id == finding.entity_id,
+                        )
+                        .order_by(InvestigationCaseRecord.last_observed_at.desc())
+                        .limit(1)
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if (
+                    latest_case is not None
+                    and observation.observed_at <= latest_case.last_observed_at
+                ):
+                    ignored = _ignored_out_of_order_event(
+                        case=latest_case,
+                        dedupe_key=dedupe_key,
+                        observation=observation,
+                        finding=finding,
+                    )
+                    session.add(ignored)
+                    await session.flush()
+                    return _event_result(latest_case, ignored, inserted=True)
+            elif observation.observed_at <= case.last_observed_at:
+                ignored = _ignored_out_of_order_event(
+                    case=case,
+                    dedupe_key=dedupe_key,
+                    observation=observation,
+                    finding=finding,
+                )
+                session.add(ignored)
+                await session.flush()
+                return _event_result(case, ignored, inserted=True)
+
             previous = _state(case) if case is not None else None
             step = self._engine.advance(
                 finding=finding,
