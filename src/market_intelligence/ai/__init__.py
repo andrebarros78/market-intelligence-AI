@@ -4,6 +4,17 @@ from market_intelligence.ai.data_gateway import (
     AIDataGateway,
     AIDataGatewayResult,
 )
+from market_intelligence.ai.inference_contract import (
+    AI_INFERENCE_CONTRACT_VERSION,
+    AIAnalysisResponse,
+    AIInferencePromptEnvelope,
+    build_minimized_inference_prompt,
+    parse_minimized_ai_response,
+)
+from market_intelligence.ai.minimized_runtime import (
+    AIMinimizedInferenceResult,
+    execute_minimized_inference,
+)
 from market_intelligence.ai.providers import (
     AIProviderConfig,
     AIProviderInferenceResult,
@@ -28,8 +39,12 @@ from market_intelligence.ai.vault import (
 __all__ = [
     "AI_DATA_GATEWAY",
     "AI_DATA_GATEWAY_VERSION",
+    "AI_INFERENCE_CONTRACT_VERSION",
+    "AIAnalysisResponse",
     "AIDataGateway",
     "AIDataGatewayResult",
+    "AIInferencePromptEnvelope",
+    "AIMinimizedInferenceResult",
     "AIProviderConfig",
     "AIProviderInferenceResult",
     "AIProviderProbeResult",
@@ -44,4 +59,7 @@ __all__ = [
     "SANDBOX_EXPECTED_OUTPUT",
     "SANDBOX_PROMPT",
     "ZAIDriver",
+    "build_minimized_inference_prompt",
+    "execute_minimized_inference",
+    "parse_minimized_ai_response",
 ]

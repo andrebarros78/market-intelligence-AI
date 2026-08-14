@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, inspect
 
 from market_intelligence.marketplaces.mercadolivre.oauth import db_models as _oauth_db_models  # noqa: F401
+from market_intelligence.persistence import ai_models as _ai_models  # noqa: F401
 from market_intelligence.persistence import feedback_models as _feedback_models  # noqa: F401
 from market_intelligence.persistence.models import Base
 
@@ -19,6 +20,7 @@ def test_operational_schema_can_be_materialized_in_memory() -> None:
         "investigation_cases",
         "investigation_events",
         "alert_outcomes",
+        "ai_inference_audits",
         "oauth_states",
         "oauth_credentials",
         "oauth_audit",
@@ -81,3 +83,25 @@ def test_feedback_schema_is_append_only_and_idempotent() -> None:
     assert "causal_claim" in outcomes.c
     assert "platform_internal_cause_confirmed" in outcomes.c
     assert "uq_alert_outcomes_dedupe_key" in unique_names
+
+
+def test_ai_inference_audit_schema_contains_provenance_but_no_credentials_or_raw_text() -> None:
+    table = Base.metadata.tables["ai_inference_audits"]
+    columns = set(table.columns.keys())
+    assert {
+        "request_key",
+        "provider",
+        "model",
+        "gateway_output_sha256",
+        "prompt_sha256",
+        "output_sha256",
+        "response_json",
+        "total_tokens",
+        "latency_ms",
+    } <= columns
+    assert "api_key" not in columns
+    assert "authorization" not in columns
+    assert "access_token" not in columns
+    assert "refresh_token" not in columns
+    assert "raw_prompt" not in columns
+    assert "raw_response" not in columns
