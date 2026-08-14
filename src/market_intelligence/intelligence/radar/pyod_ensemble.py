@@ -4,6 +4,7 @@ import statistics
 from importlib.metadata import version as package_version
 from typing import Any, Literal
 
+import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pyod.models.ecod import ECOD
 from pyod.models.iforest import IForest
@@ -119,6 +120,13 @@ def _normalize_rows(
     ]
 
 
+def _as_matrix(rows: list[list[float]]) -> np.ndarray:
+    matrix = np.asarray(rows, dtype=float)
+    if matrix.ndim != 2:
+        raise ValueError("pyod adapter requires a two-dimensional matrix")
+    return matrix
+
+
 class PyODBenchmarkSample(BaseModel):
     label: bool
     features: list[float] = Field(min_length=2)
@@ -219,16 +227,18 @@ class PyODBenchmarkCalibrator:
         normalized_validation = _normalize_rows(
             [sample.features for sample in parsed], centers, scales
         )
+        train_matrix = _as_matrix(normalized_train)
+        validation_matrix = _as_matrix(normalized_validation)
 
         detector_scores: dict[str, list[float]] = {}
         detector_metrics: dict[str, dict[str, float]] = {}
         qualities: dict[str, float] = {}
         for name in sorted(set(detector_names)):
             model = _model(name)
-            model.fit(normalized_train)
+            model.fit(train_matrix)
             training_scores = [float(value) for value in model.decision_scores_]
             raw_validation = [
-                float(value) for value in model.decision_function(normalized_validation)
+                float(value) for value in model.decision_function(validation_matrix)
             ]
             normalized_scores = [
                 _percentile(training_scores, value) for value in raw_validation
@@ -364,14 +374,16 @@ class PyODEnsembleDetector:
         if matrix is None:
             return None
         training_rows, current, scaling = matrix
+        train_matrix = _as_matrix(training_rows)
+        current_matrix = _as_matrix([current])
 
         detector_percentiles: dict[str, float] = {}
         raw_scores: dict[str, float] = {}
         for name in sorted(detector_weights):
             model = _model(name)
-            model.fit(training_rows)
+            model.fit(train_matrix)
             train_scores = [float(value) for value in model.decision_scores_]
-            raw_score = float(model.decision_function([current])[0])
+            raw_score = float(model.decision_function(current_matrix)[0])
             raw_scores[name] = raw_score
             detector_percentiles[name] = _percentile(train_scores, raw_score)
 
@@ -418,6 +430,7 @@ class PyODEnsembleDetector:
                 "detector_percentiles": detector_percentiles,
                 "detector_raw_scores": raw_scores,
                 "pyod_library_version": package_version("pyod"),
+                "numpy_library_version": package_version("numpy"),
                 "causal_claim": False,
                 "detector_version": self.version,
             },
