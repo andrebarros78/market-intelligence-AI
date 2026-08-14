@@ -18,7 +18,7 @@ jobs:
     environment: INTELIGENCI DE MERCADO API
     env:
       MI_AI_SYSTEM_PROVIDER: openai
-      MI_AI_SYSTEM_MODEL: ${{ secrets.MI_AI_SYSTEM_MODEL || 'gpt-5-mini' }}
+      MI_AI_SYSTEM_MODEL: gpt-5-mini
       MI_AI_SYSTEM_BASE_URL: https://api.openai.com/v1
       MI_AI_SYSTEM_API_KEY: ${{ secrets.MI_AI_SYSTEM_API_KEY }}
     steps:
@@ -37,7 +37,7 @@ jobs:
     environment: INTELIGENCI DE MERCADO API
     env:
       MI_AI_AGENTS_PROVIDER: zai
-      MI_AI_AGENTS_MODEL: ${{ secrets.MI_AI_AGENTS_MODEL || 'glm-5.1' }}
+      MI_AI_AGENTS_MODEL: glm-5.1
       MI_AI_AGENTS_BASE_URL: https://api.z.ai/api/paas/v4
       MI_AI_AGENTS_API_KEY: ${{ secrets.MI_AI_AGENTS_API_KEY }}
     steps:
