@@ -15,7 +15,11 @@ from market_intelligence.intelligence.radar.ai_explainer import (
 )
 
 
-def _alert(*, level: EvidenceLevel = EvidenceLevel.INFERENCE) -> Alert:
+def _alert(
+    *,
+    level: EvidenceLevel = EvidenceLevel.INFERENCE,
+    include_hypothesis: bool = False,
+) -> Alert:
     observed = datetime(2026, 8, 14, 15, 0, tzinfo=UTC)
     return Alert(
         entity=EntityRef(
@@ -38,7 +42,9 @@ def _alert(*, level: EvidenceLevel = EvidenceLevel.INFERENCE) -> Alert:
         confidence=0.88,
         observable_causes=["price_stable", "stock_normal"],
         unexplained_residual=0.64,
-        hypotheses=["distribution_change_requires_investigation"],
+        hypotheses=(
+            ["distribution_change_requires_investigation"] if include_hypothesis else []
+        ),
         control_comparison={"peer_change": -0.08, "target_change": -0.67},
         recommended_action="Compare controls and continue observing.",
         detector_version="distribution@1.0.0",
@@ -69,8 +75,11 @@ def test_bridge_request_id_is_deterministic_and_contains_no_raw_entity_id() -> N
 
 
 def test_bridge_does_not_upgrade_hypothesis() -> None:
-    request = build_radar_alert_ai_request(_alert(level=EvidenceLevel.HYPOTHESIS))
+    request = build_radar_alert_ai_request(
+        _alert(level=EvidenceLevel.INFERENCE, include_hypothesis=True)
+    )
     assert request.data["evidence_class"] == "HIPOTESE"
+    assert request.data["hypotheses"] == ["distribution_change_requires_investigation"]
 
 
 @pytest.mark.asyncio
