@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
@@ -30,7 +31,7 @@ class OutcomeSource(StrEnum):
 class AlertOutcomeSubmission(BaseModel):
     classification: OutcomeClassification
     cause_classification: CauseClassification | None = None
-    decided_at: str = Field(min_length=1)
+    decided_at: datetime
     source: OutcomeSource
     actor: str | None = Field(default=None, max_length=160)
     reason_code: str | None = Field(default=None, max_length=160)
