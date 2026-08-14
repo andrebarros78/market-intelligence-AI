@@ -50,7 +50,7 @@ def test_vault_has_exactly_five_slots_and_legacy_bridge(monkeypatch: pytest.Monk
     monkeypatch.setenv("MI_AI_SYSTEM_MODEL", "gpt-5-mini")
     monkeypatch.setenv("MI_AI_SYSTEM_API_KEY", "system-key")
     monkeypatch.setenv("MI_AI_AGENTS_PROVIDER", "zai")
-    monkeypatch.setenv("MI_AI_AGENTS_MODEL", "glm-5.1")
+    monkeypatch.setenv("MI_AI_AGENTS_MODEL", "glm-4.7-flash")
     monkeypatch.setenv("MI_AI_AGENTS_API_KEY", "agents-key")
 
     vault = AIVault.from_env()
@@ -133,7 +133,7 @@ def test_system_and_agents_can_select_any_profile_independently(monkeypatch: pyt
     _clear_vault_env(monkeypatch)
     for slot, provider, model, url, key in (
         (1, "openai", "gpt-5-mini", "https://api.openai.com/v1", "key-one"),
-        (2, "zai", "glm-5.1", "https://api.z.ai/api/paas/v4", "key-two"),
+        (2, "zai", "glm-4.7-flash", "https://api.z.ai/api/paas/v4", "key-two"),
     ):
         prefix = f"MI_AI_PROFILE_{slot}"
         monkeypatch.setenv(f"{prefix}_ENABLED", "true")
