@@ -255,7 +255,7 @@ class PyODBenchmarkCalibrator:
             detector_weights=weights,
             threshold=threshold,
             feature_names=feature_names,
-            min_history=max(12, len(train_features)),
+            min_history=12,
             production_approved=False,
             sample_count=len(parsed),
             positive_count=sum(labels),
@@ -331,7 +331,10 @@ class PyODEnsembleDetector:
     @staticmethod
     def _decision_score(raw_score: float, threshold: float) -> float:
         if raw_score >= threshold:
-            return min(1.0, 0.60 + 0.40 * ((raw_score - threshold) / max(1.0 - threshold, 1e-9)))
+            return min(
+                1.0,
+                0.60 + 0.40 * ((raw_score - threshold) / max(1.0 - threshold, 1e-9)),
+            )
         return max(0.0, 0.60 * (raw_score / max(threshold, 1e-9)))
 
     def evaluate(self, observation: RadarObservation) -> DetectorResult | None:
@@ -342,7 +345,7 @@ class PyODEnsembleDetector:
             feature_names = self._experimental_features(observation)
             min_history = self.experimental_min_history
             detector_weights = {name: 1.0 for name in PYOD_DETECTORS}
-            threshold = 0.95
+            threshold: float | None = None
             trust_boundary = "request_experimental"
             approved = False
             profile_version = "experimental-unbenchmarked"
@@ -377,10 +380,14 @@ class PyODEnsembleDetector:
             detector_percentiles[name] * weight
             for name, weight in detector_weights.items()
         ) / weight_total
-        decision = ensemble_score >= threshold
-        mapped_score = self._decision_score(ensemble_score, threshold)
-        if not approved:
-            mapped_score = min(0.59, mapped_score)
+        if threshold is None:
+            decision = False
+            mapped_score = min(0.59, ensemble_score * 0.59)
+        else:
+            decision = ensemble_score >= threshold
+            mapped_score = self._decision_score(ensemble_score, threshold)
+            if not approved:
+                mapped_score = min(0.59, mapped_score)
         level = EvidenceLevel.INFERENCE if approved else EvidenceLevel.HYPOTHESIS
         summary = (
             "Benchmarked PyOD ensemble detected an anomalous multivariate state"
@@ -399,7 +406,7 @@ class PyODEnsembleDetector:
                 "ensemble_score": ensemble_score,
                 "ensemble_threshold": threshold,
                 "ensemble_decision": decision if approved else False,
-                "alert_eligible": approved,
+                "alert_eligible": approved and decision,
                 "production_approved": approved,
                 "trust_boundary": trust_boundary,
                 "profile_version": profile_version,
