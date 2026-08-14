@@ -48,7 +48,10 @@ def test_real_read_redirect_must_be_static_https() -> None:
 async def test_authorization_url_uses_state_pkce_and_never_client_secret(
     settings: RealReadOAuthSettings,
 ) -> None:
-    client = MercadoLivreRealOAuthClient(settings, transport=httpx.MockTransport(lambda request: None))
+    client = MercadoLivreRealOAuthClient(
+        settings,
+        transport=httpx.MockTransport(lambda request: None),
+    )
     try:
         url = client.authorization_url(state="state-value", code_challenge="challenge-value")
         parsed = urlsplit(url)
@@ -105,7 +108,7 @@ async def test_exchange_is_the_only_oauth_post_and_users_me_is_get(
         tokens = await client.exchange(code="authorization-code", verifier="pkce-verifier")
         assert tokens.access_token == "real-access-token"
         assert tokens.refresh_token == "real-refresh-token"
-        assert tokens.scopes == ("read", "offline_access")
+        assert tokens.scopes == ("offline_access", "read")
         identity = await client.read_users_me(tokens.access_token)
         assert identity.payload["id"] == 9876543210
         assert identity.telemetry.status_code == 200
@@ -116,6 +119,61 @@ async def test_exchange_is_the_only_oauth_post_and_users_me_is_get(
         ]
         assert "super-secret-value" in seen[0][2]
         assert "real-access-token" not in seen[0][2]
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_write_scope_is_rejected_before_any_business_read(
+    settings: RealReadOAuthSettings,
+) -> None:
+    seen: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.url.path == "/oauth/token":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "must-not-be-used",
+                    "refresh_token": "must-not-be-stored",
+                    "expires_in": 21600,
+                    "scope": "read write offline_access",
+                },
+            )
+        raise AssertionError("business read must not happen after write scope")
+
+    client = MercadoLivreRealOAuthClient(settings, transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(RealReadOAuthError) as caught:
+            await client.exchange(code="authorization-code", verifier="pkce-verifier")
+        assert caught.value.code == "mercadolivre_real_oauth_write_scope_rejected"
+        assert seen == [("POST", "/oauth/token")]
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", [None, "", "offline_access"])
+async def test_missing_read_scope_is_rejected_fail_closed(
+    settings: RealReadOAuthSettings,
+    scope: str | None,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload: dict[str, object] = {
+            "access_token": "must-not-be-used",
+            "refresh_token": "must-not-be-stored",
+            "expires_in": 21600,
+        }
+        if scope is not None:
+            payload["scope"] = scope
+        return httpx.Response(200, json=payload)
+
+    client = MercadoLivreRealOAuthClient(settings, transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(RealReadOAuthError) as caught:
+            await client.exchange(code="authorization-code", verifier="pkce-verifier")
+        assert caught.value.code == "mercadolivre_real_oauth_read_scope_missing"
     finally:
         await client.aclose()
 
