@@ -1,10 +1,13 @@
 from market_intelligence.ai.providers import (
     AIProviderConfig,
+    AIProviderInferenceResult,
     AIProviderProbeResult,
     GeminiDriver,
     OpenAIResponsesDriver,
     ProviderConfigurationError,
     ProviderManager,
+    SANDBOX_EXPECTED_OUTPUT,
+    SANDBOX_PROMPT,
     ZAIDriver,
 )
 from market_intelligence.ai.vault import (
@@ -16,6 +19,7 @@ from market_intelligence.ai.vault import (
 
 __all__ = [
     "AIProviderConfig",
+    "AIProviderInferenceResult",
     "AIProviderProbeResult",
     "AI_VAULT_PROFILE_COUNT",
     "AI_VAULT_SLOTS",
@@ -25,5 +29,7 @@ __all__ = [
     "OpenAIResponsesDriver",
     "ProviderConfigurationError",
     "ProviderManager",
+    "SANDBOX_EXPECTED_OUTPUT",
+    "SANDBOX_PROMPT",
     "ZAIDriver",
 ]
