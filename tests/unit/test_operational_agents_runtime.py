@@ -17,7 +17,8 @@ def test_operational_agents_are_installed_read_only_and_provider_neutral() -> No
     assert installed == tuple(sorted(INSTALLED_OPERATIONAL_AGENTS, key=lambda item: item.agent_id))
     assert all(item.ai_role == "agents" for item in installed)
     assert all(item.authority == "read_only" for item in installed)
-    assert all("provider" not in item.model_fields for item in installed)
+    assert "provider" not in AgentProfile.model_fields
+    assert "model" not in AgentProfile.model_fields
 
 
 def test_agent_profile_cannot_escalate_to_system_ai() -> None:
@@ -42,7 +43,7 @@ def test_agent_dispatch_always_uses_agents_temporal_plane() -> None:
             "observed_value": 120,
             "expected_value": 100,
             "deviation_percent": 20,
-            "evidence_class": "fact",
+            "evidence_class": "FATO",
             "severity": "high",
             "confidence": 0.9,
         },
