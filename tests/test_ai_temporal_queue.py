@@ -1,4 +1,5 @@
 import pytest
+from temporalio.common import WorkflowIDReusePolicy
 
 from market_intelligence.ai.providers import ProviderConfigurationError
 from market_intelligence.ai.temporal_queue import (
@@ -6,6 +7,7 @@ from market_intelligence.ai.temporal_queue import (
     ai_request_key,
     ai_workflow_id,
     build_sandbox_ai_job,
+    start_sandbox_ai_job,
 )
 
 
@@ -40,6 +42,32 @@ def test_sandbox_job_contains_no_prompt_or_raw_request_identifier() -> None:
     assert len(job["request_key"]) == 64
     assert "customer-sensitive-id" not in str(job)
     assert "prompt" not in job
+
+
+@pytest.mark.asyncio
+async def test_dispatch_uses_stable_workflow_id_and_rejects_duplicate_reuse() -> None:
+    calls: list[dict[str, object]] = []
+    sentinel = object()
+
+    class FakeClient:
+        async def start_workflow(self, workflow_name, payload, **kwargs):
+            calls.append({"workflow_name": workflow_name, "payload": payload, **kwargs})
+            return sentinel
+
+    result = await start_sandbox_ai_job(
+        FakeClient(),
+        request_id="synthetic-request-001",
+        role="agents",
+    )
+
+    assert result is sentinel
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["workflow_name"] == "market-intelligence.ai.sandbox.v1"
+    assert call["task_queue"] == "market-intelligence-ai-agents-v1"
+    assert call["id_reuse_policy"] is WorkflowIDReusePolicy.REJECT_DUPLICATE
+    assert call["id"] == ai_workflow_id(request_id="synthetic-request-001", role="agents")
+    assert "synthetic-request-001" not in str(call["payload"])
 
 
 def test_ai_queue_rejects_unknown_role_and_missing_request_id() -> None:
