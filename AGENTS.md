@@ -5,6 +5,7 @@ Entregar o Market Intelligence IA por Loop Engineering: INSPECIONAR → REPRODUZ
 
 ## Regras soberanas
 - Mercado Livre e futuros marketplaces permanecem read-only/fail-closed até autorização explícita para escrita real.
+- Mercado Livre é o primeiro adapter de prova, não o domínio central. `core`, `intelligence`, `skills` e `agents` nunca importam adapters concretos de marketplace.
 - Nunca inserir, revelar ou registrar credenciais, tokens, client secrets ou dados pessoais reais.
 - Nenhum agente pode gastar dinheiro, contratar serviço, publicar/deployar, mudar segurança/permissões, executar ação destrutiva ou produzir efeito externo relevante sem autorização humana explícita.
 - Afirmação não é evidência. Cada entrega precisa de teste, comando, estado consultado ou outro artefato verificável.
@@ -13,6 +14,14 @@ Entregar o Market Intelligence IA por Loop Engineering: INSPECIONAR → REPRODUZ
 - Eventos brutos são preservados antes da normalização/interpretação.
 - Toda mudança deve ser pequena, reversível, testável e compatível com a arquitetura aprovada.
 
+## Duas IAs — fronteira obrigatória
+- Serviços soberanos do sistema usam `AI_ROLE=system` e a fila `market-intelligence-ai-system-v1`.
+- Agentes operacionais usam exclusivamente `AI_ROLE=agents` e a fila `market-intelligence-ai-agents-v1`.
+- Perfil de agente não contém provider/modelo comercial e não pode selecionar OpenAI, GLM, Qwen, DeepSeek, Kimi ou outro fornecedor.
+- Provider Manager/Router resolve a rota física por política, benchmark, disponibilidade, segurança e custo.
+- Um agente nunca pode escalar para `AI_ROLE=system`.
+- A existência de adapter pago não autoriza gasto.
+
 ## Trabalho entre agentes
 - Pipo Chief Engineer coordena dependências e decide a ordem técnica.
 - Um agente não aprova o próprio trabalho. QA Verifier é o verificador independente padrão.
@@ -20,6 +29,13 @@ Entregar o Market Intelligence IA por Loop Engineering: INSPECIONAR → REPRODUZ
 - Architecture Guardian revisa mudanças que alterem contratos, camadas ou dependências centrais.
 - Não editar simultaneamente o mesmo arquivo em tarefas paralelas.
 - Produzir PRs pequenos com critério de aceitação explícito; não misturar refatoração oportunista sem relação com a tarefa.
+
+## Agentes operacionais do produto
+- Os agentes em `src/market_intelligence/agents/` são trabalhadores do produto, separados dos agentes de engenharia em `.codex/agents/`.
+- Todos os agentes operacionais são `read_only` por padrão.
+- Agentes trabalham sobre contratos canônicos e dados minimizados; não recebem payload bruto de marketplace quando não for necessário.
+- Skills são competência, não autoridade. Apenas skills internas/open-source com estado `APPROVED_ACTIVE` podem executar.
+- Skills proprietárias ou em quarentena permanecem referência de estudo e nunca são promovidas automaticamente.
 
 ## Codex local, almoxarifado e continuidade
 - Quando houver acesso à máquina do projeto, **Codex local é o executor principal de engenharia**. Use os agentes nativos de `.codex/agents/` e somente as skills externas que tiverem sido promovidas após inspeção.
