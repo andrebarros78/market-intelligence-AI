@@ -39,6 +39,8 @@ class AlertOutcomeSubmission(BaseModel):
 
     @model_validator(mode="after")
     def validate_trust_semantics(self) -> "AlertOutcomeSubmission":
+        if self.decided_at.tzinfo is None or self.decided_at.utcoffset() is None:
+            raise ValueError("decided_at must be timezone-aware")
         if self.source == OutcomeSource.HUMAN and not (self.actor or "").strip():
             raise ValueError("human outcome requires actor")
         if self.source == OutcomeSource.SYSTEM_OBSERVED:
