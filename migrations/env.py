@@ -7,6 +7,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from market_intelligence.persistence.models import Base
+from market_intelligence.persistence import ai_models as _ai_models  # noqa: F401
 from market_intelligence.persistence import feedback_models as _feedback_models  # noqa: F401
 from market_intelligence.marketplaces.mercadolivre.oauth import db_models as _oauth_db_models  # noqa: F401
 
