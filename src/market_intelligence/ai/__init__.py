@@ -5,6 +5,7 @@ from market_intelligence.ai.providers import (
     OpenAIResponsesDriver,
     ProviderConfigurationError,
     ProviderManager,
+    ZAIDriver,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "OpenAIResponsesDriver",
     "ProviderConfigurationError",
     "ProviderManager",
+    "ZAIDriver",
 ]

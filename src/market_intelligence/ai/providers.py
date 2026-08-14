@@ -19,6 +19,12 @@ class ProviderConfigurationError(RuntimeError):
 
 AI_ROLES = {"system", "agents"}
 
+_PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
+    "openai": ("gpt-5-mini", "https://api.openai.com/v1"),
+    "gemini": ("gemini-3.6-flash", "https://generativelanguage.googleapis.com/v1beta"),
+    "zai": ("glm-5.1", "https://api.z.ai/api/paas/v4"),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class AIProviderConfig:
@@ -39,19 +45,15 @@ class AIProviderConfig:
 
         role_prefix = f"MI_AI_{normalized_role.upper()}"
         is_system = normalized_role == "system"
-        default_provider = "openai" if is_system else "gemini"
+        default_provider = "openai" if is_system else "zai"
+        provider = (os.getenv(f"{role_prefix}_PROVIDER") or default_provider).strip().lower()
 
-        provider = (
-            os.getenv(f"{role_prefix}_PROVIDER")
-            or default_provider
-        ).strip().lower()
-
-        default_model = "gpt-5-mini" if provider == "openai" else "gemini-3.6-flash"
-        default_base_url = (
-            "https://api.openai.com/v1"
-            if provider == "openai"
-            else "https://generativelanguage.googleapis.com/v1beta"
-        )
+        defaults = _PROVIDER_DEFAULTS.get(provider)
+        if defaults is None:
+            default_model = ""
+            default_base_url = ""
+        else:
+            default_model, default_base_url = defaults
 
         model = (
             os.getenv(f"{role_prefix}_MODEL")
@@ -130,13 +132,11 @@ class _CredentialBoundDriver:
         return value
 
 
-class OpenAIResponsesDriver(_CredentialBoundDriver):
-    """OpenAI provider boundary retained for provider portability."""
-
-    provider_name = "openai"
-    allowed_scheme = "https"
-    allowed_host = "api.openai.com"
-    allowed_base_path = "/v1"
+class _OpenAICompatibleModelsDriver(_CredentialBoundDriver):
+    provider_name: str
+    allowed_host: str
+    allowed_base_path: str
+    policy_error: str
 
     def __init__(
         self,
@@ -155,7 +155,7 @@ class OpenAIResponsesDriver(_CredentialBoundDriver):
             raise ProviderConfigurationError("ai_provider_model_missing")
         parsed = urlsplit(self._config.base_url)
         if (
-            parsed.scheme.lower() != self.allowed_scheme
+            parsed.scheme.lower() != "https"
             or (parsed.hostname or "").lower() != self.allowed_host
             or parsed.port not in {None, 443}
             or parsed.username is not None
@@ -164,7 +164,7 @@ class OpenAIResponsesDriver(_CredentialBoundDriver):
             or parsed.fragment
             or parsed.path.rstrip("/") != self.allowed_base_path
         ):
-            raise ProviderConfigurationError("openai_base_url_policy_violation")
+            raise ProviderConfigurationError(self.policy_error)
 
     async def probe(self) -> AIProviderProbeResult:
         api_key = self._api_key_value()
@@ -183,7 +183,7 @@ class OpenAIResponsesDriver(_CredentialBoundDriver):
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 raise ProviderConfigurationError("ai_provider_connectivity_failure") from exc
 
-        if response.status_code in {401, 403}:
+        if response.status_code in {400, 401, 403}:
             raise ProviderConfigurationError("ai_provider_authentication_failed")
         if response.status_code >= 400:
             raise ProviderConfigurationError("ai_provider_probe_failed")
@@ -204,18 +204,35 @@ class OpenAIResponsesDriver(_CredentialBoundDriver):
             provider=self._config.provider,
             model=self._config.model,
             authenticated=True,
-            model_available=self._config.model in model_ids,
+            model_available=self._config.model.lower() in {item.lower() for item in model_ids},
             endpoint_host=self.allowed_host,
             inference_executed=False,
             business_data_sent=False,
         )
 
 
+class OpenAIResponsesDriver(_OpenAICompatibleModelsDriver):
+    """OpenAI provider boundary with a no-inference model-list probe."""
+
+    provider_name = "openai"
+    allowed_host = "api.openai.com"
+    allowed_base_path = "/v1"
+    policy_error = "openai_base_url_policy_violation"
+
+
+class ZAIDriver(_OpenAICompatibleModelsDriver):
+    """Z.AI OpenAI-compatible boundary for GLM agents, without inference in the probe."""
+
+    provider_name = "zai"
+    allowed_host = "api.z.ai"
+    allowed_base_path = "/api/paas/v4"
+    policy_error = "zai_base_url_policy_violation"
+
+
 class GeminiDriver(_CredentialBoundDriver):
-    """Gemini API boundary with a no-inference connectivity probe."""
+    """Gemini boundary retained as an optional provider, not the agent default."""
 
     provider_name = "gemini"
-    allowed_scheme = "https"
     allowed_host = "generativelanguage.googleapis.com"
     allowed_base_path = "/v1beta"
 
@@ -236,7 +253,7 @@ class GeminiDriver(_CredentialBoundDriver):
             raise ProviderConfigurationError("ai_provider_model_missing")
         parsed = urlsplit(self._config.base_url)
         if (
-            parsed.scheme.lower() != self.allowed_scheme
+            parsed.scheme.lower() != "https"
             or (parsed.hostname or "").lower() != self.allowed_host
             or parsed.port not in {None, 443}
             or parsed.username is not None
@@ -257,10 +274,7 @@ class GeminiDriver(_CredentialBoundDriver):
             follow_redirects=False,
         ) as client:
             try:
-                response = await client.get(
-                    "models",
-                    headers={"x-goog-api-key": api_key},
-                )
+                response = await client.get("models", headers={"x-goog-api-key": api_key})
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 raise ProviderConfigurationError("ai_provider_connectivity_failure") from exc
 
@@ -275,7 +289,6 @@ class GeminiDriver(_CredentialBoundDriver):
         models = payload.get("models") if isinstance(payload, dict) else None
         if not isinstance(models, list):
             raise ProviderConfigurationError("ai_provider_invalid_probe_response")
-
         model_ids: set[str] = set()
         for item in models:
             if not isinstance(item, dict):
@@ -286,7 +299,6 @@ class GeminiDriver(_CredentialBoundDriver):
                 model_ids.add(name.removeprefix("models/"))
             if isinstance(base_model_id, str):
                 model_ids.add(base_model_id)
-
         return AIProviderProbeResult(
             role=self._config.role,
             provider=self._config.provider,
@@ -303,12 +315,13 @@ DriverFactory = Callable[[AIProviderConfig], AIProviderDriver]
 
 
 class ProviderManager:
-    """Stable provider contract; system and agents credentials are isolated by role."""
+    """Stable provider contract; system and agent credentials stay isolated by role."""
 
     def __init__(self, factories: dict[str, DriverFactory] | None = None) -> None:
         self._factories: dict[str, DriverFactory] = {
             "gemini": lambda config: GeminiDriver(config),
             "openai": lambda config: OpenAIResponsesDriver(config),
+            "zai": lambda config: ZAIDriver(config),
         }
         if factories:
             self._factories.update(factories)
