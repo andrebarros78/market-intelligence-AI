@@ -135,6 +135,18 @@ class Module01SecurityPolicy:
             normalized[name] = value
         return normalized
 
+    def assert_no_credential_echo(
+        self,
+        *values: str,
+        access_token: str | None,
+    ) -> None:
+        if not access_token:
+            return
+        for value in values:
+            rendered = _decode_for_validation(str(value))
+            if access_token in rendered:
+                raise OperationalSecurityViolation("mercadolivre_credential_echo_blocked")
+
     def validate_query_params(
         self,
         params: Mapping[str, str] | None,
