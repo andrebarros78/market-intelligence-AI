@@ -28,7 +28,6 @@ def create_app(
     iad_profile: IADCalibrationProfile | dict[str, Any] | None = None,
     pyod_profile: PyODBenchmarkProfile | dict[str, Any] | None = None,
     feedback_sessions: async_sessionmaker[AsyncSession] | None = None,
-    feedback_trusted_for_calibration: bool = False,
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
     trusted_iad_profile = (
@@ -69,9 +68,7 @@ def create_app(
             "oauth_refresh_workflow_configured": oauth_refresh_engine is not None,
             "synthetic_ingestion_workflow_configured": ingestion_engine is not None,
             "posterior_feedback_persistence_configured": feedback_sessions is not None,
-            "posterior_feedback_trusted_runtime": bool(
-                feedback_sessions is not None and feedback_trusted_for_calibration
-            ),
+            "posterior_feedback_http_calibration_trusted": False,
         }
 
     @app.get("/v1/system/capabilities")
@@ -131,9 +128,8 @@ def create_app(
                 "posterior_feedback": True,
                 "posterior_feedback_version": "posterior-feedback@1.0.0",
                 "posterior_feedback_persistence_configured": feedback_sessions is not None,
-                "posterior_feedback_trusted_runtime": bool(
-                    feedback_sessions is not None and feedback_trusted_for_calibration
-                ),
+                "posterior_feedback_http_calibration_trusted": False,
+                "posterior_feedback_trusted_repository_path": True,
                 "posterior_feedback_request_can_promote": False,
                 "posterior_feedback_auto_calibration": False,
                 "false_positive_metrics": True,
@@ -222,12 +218,7 @@ def create_app(
 
     app.include_router(build_synthetic_oauth_router(oauth_runtime, oauth_refresh_engine))
     app.include_router(build_synthetic_ingestion_router(ingestion_engine))
-    app.include_router(
-        build_feedback_router(
-            feedback_sessions,
-            trusted_for_calibration=feedback_trusted_for_calibration,
-        )
-    )
+    app.include_router(build_feedback_router(feedback_sessions))
     return app
 
 
