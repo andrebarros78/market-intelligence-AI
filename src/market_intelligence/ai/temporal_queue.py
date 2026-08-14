@@ -3,7 +3,11 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
+from temporalio.client import Client, WorkflowHandle
+from temporalio.common import WorkflowIDReusePolicy
+
 from market_intelligence.ai.providers import AI_ROLES, ProviderConfigurationError
+from market_intelligence.workflows.names import WORKFLOW_AI_SANDBOX
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,3 +74,26 @@ def build_sandbox_ai_job(*, request_id: str, role: str) -> dict[str, str]:
         "role": normalized_role,
         "mode": "sandbox",
     }
+
+
+async def start_sandbox_ai_job(
+    client: Client,
+    *,
+    request_id: str,
+    role: str,
+) -> WorkflowHandle:
+    """Start one durable AI sandbox job with duplicate workflow IDs rejected.
+
+    Reusing the same request id for the same role produces the same workflow id,
+    so Temporal rejects a second execution even after the first one completed.
+    """
+
+    queue = ai_queue_config(role)
+    payload = build_sandbox_ai_job(request_id=request_id, role=role)
+    return await client.start_workflow(
+        WORKFLOW_AI_SANDBOX,
+        payload,
+        id=ai_workflow_id(request_id=request_id, role=role),
+        task_queue=queue.task_queue,
+        id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+    )
