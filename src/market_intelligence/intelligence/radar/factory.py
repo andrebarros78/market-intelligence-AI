@@ -8,6 +8,7 @@ from market_intelligence.intelligence.radar.detectors import (
     TemporalPatternDetector,
 )
 from market_intelligence.intelligence.radar.factor_attribution import ObservableFactorAttributionDetector
+from market_intelligence.intelligence.radar.iad import DistributionAnomalyIndex
 from market_intelligence.intelligence.radar.multivariate import MultivariateRelationshipDetector
 from market_intelligence.intelligence.radar.regime import RegimeChangeDetector
 from market_intelligence.intelligence.radar.relational import RelationalControlDetector
@@ -30,5 +31,6 @@ def build_default_radar() -> RadarService:
             ObservableFactorAttributionDetector(),
             UnexplainedResidualDetector(),
             ChannelRegimeCorrelationDetector(),
-        ]
+        ],
+        derived_detectors=[DistributionAnomalyIndex()],
     )
