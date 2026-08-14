@@ -16,6 +16,7 @@ dependencies = [
   "psycopg[binary]==3.3.4",
   "temporalio==1.31.0",
   "cryptography==50.0.0",
+  "numpy==2.5.2",
   "pyod==3.6.2",
 ]
 
