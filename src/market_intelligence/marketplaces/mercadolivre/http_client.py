@@ -185,6 +185,11 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
         client = self._require_transport()
         token = self._token_value()
         try:
+            MODULE01_SECURITY_POLICY.assert_no_credential_echo(
+                safe_path,
+                *safe_headers.values(),
+                access_token=token,
+            )
             safe_params = MODULE01_SECURITY_POLICY.validate_query_params(
                 params,
                 access_token=token,
