@@ -11,14 +11,12 @@ from market_intelligence.persistence.feedback import PostgresFeedbackRepository
 
 def build_feedback_router(
     sessions: async_sessionmaker[AsyncSession] | None,
-    *,
-    trusted_for_calibration: bool = False,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1/internal/radar", tags=["radar-feedback"])
     repository = (
         PostgresFeedbackRepository(
             sessions,
-            trusted_for_calibration=trusted_for_calibration,
+            trusted_for_calibration=False,
         )
         if sessions is not None
         else None
@@ -40,7 +38,8 @@ def build_feedback_router(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {
             **result,
-            "trusted_runtime": bool(repository and repository.trusted_for_calibration),
+            "trusted_runtime": False,
+            "calibration_write_path": "untrusted_http",
             "auto_calibration_applied": False,
         }
 
