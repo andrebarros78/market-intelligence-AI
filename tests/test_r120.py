@@ -71,6 +71,26 @@ def test_additional_header_allowlist_blocks_authorization_host_cookie_and_unknow
         assert caught.value.code == "mercadolivre_forbidden_request_header"
 
 
+def test_credential_echo_guard_blocks_path_and_allowed_header_values() -> None:
+    policy = MODULE01_SECURITY_POLICY
+    token = "synthetic-r120-token"
+    policy.assert_no_credential_echo(
+        "/items/MLB1",
+        "application/json",
+        access_token=token,
+    )
+
+    for value in [
+        f"/items/{token}",
+        f"/items/{token}%2Fdetails",
+        f"Bearer {token}",
+        f"application/json; token={token}",
+    ]:
+        with pytest.raises(OperationalSecurityViolation) as caught:
+            policy.assert_no_credential_echo(value, access_token=token)
+        assert caught.value.code == "mercadolivre_credential_echo_blocked"
+
+
 def test_query_guard_blocks_secret_keys_and_credential_echo() -> None:
     policy = MODULE01_SECURITY_POLICY
     token = "synthetic-r120-token"
