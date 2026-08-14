@@ -19,11 +19,13 @@ from market_intelligence.marketplaces.mercadolivre.http_client import (
     MercadoLivreReadOnlyAdapter,
     MercadoLivreReadResult,
 )
-from market_intelligence.persistence.models import OAuthStateRecord
-from market_intelligence.persistence.postgresql import PostgresChannelEventRepository
+from market_intelligence.persistence.models import ChannelEventRecord, OAuthStateRecord
+from market_intelligence.persistence.postgresql import channel_event_dedupe_key
 
 from .crypto import EnvelopeCrypto, generate_pkce, state_digest
-from .stores import OAuthAuditStore, OAuthCredentialStore, current_schema_revision
+from .db_models import OAuthAuditRecord, OAuthCredentialRecord
+from .sanitize import sanitize_mapping
+from .stores import OAuthAuditStore, current_schema_revision
 from .types import ConsumedTransaction
 
 Clock = Callable[[], datetime]
@@ -34,7 +36,7 @@ _EXPECTED_SCHEMA = "0007_ai_inference_audit"
 
 
 class RealReadOAuthError(RuntimeError):
-    """Stable fail-closed error. It never embeds external payloads or credentials."""
+    """Stable fail-closed error that never embeds external payloads or credentials."""
 
     def __init__(self, code: str, *, status_code: int | None = None) -> None:
         super().__init__(code)
@@ -88,12 +90,13 @@ class RealReadOAuthSettings:
 
     @classmethod
     def from_env(cls) -> "RealReadOAuthSettings":
-        secret = os.getenv("MI_ML_CLIENT_SECRET", "")
         return cls(
             app_id=os.getenv("MI_ML_APP_ID", ""),
-            client_secret=SecretStr(secret),
+            client_secret=SecretStr(os.getenv("MI_ML_CLIENT_SECRET", "")),
             redirect_uri=os.getenv("MI_ML_REDIRECT_URI", ""),
-            real_read_enabled=os.getenv("MI_ML_REAL_READ_ENABLED", "false").lower() == "true",
+            real_read_enabled=(
+                os.getenv("MI_ML_REAL_READ_ENABLED", "false").lower() == "true"
+            ),
         )
 
     def validate_configuration(self) -> None:
@@ -121,7 +124,7 @@ class RealReadOAuthSettings:
 
 
 class MercadoLivreRealOAuthClient:
-    """OAuth-only network client. Business-resource writes do not exist in this class."""
+    """OAuth-only client. It exposes no marketplace mutation operation."""
 
     def __init__(
         self,
@@ -129,10 +132,12 @@ class MercadoLivreRealOAuthClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_seconds: float = 20.0,
+        clock: Clock | None = None,
     ) -> None:
         self.settings = settings
         self._transport = transport
         self._synthetic_transport = isinstance(transport, httpx.MockTransport)
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._client: httpx.AsyncClient | None = None
         if settings.real_read_enabled or self._synthetic_transport:
             self._client = httpx.AsyncClient(
@@ -141,6 +146,16 @@ class MercadoLivreRealOAuthClient:
                 timeout=timeout_seconds,
                 follow_redirects=False,
             )
+
+    @property
+    def synthetic_transport(self) -> bool:
+        return self._synthetic_transport
+
+    def assert_operation_enabled(self) -> None:
+        if self._synthetic_transport:
+            self.settings.validate_configuration()
+        else:
+            self.settings.assert_enabled()
 
     async def aclose(self) -> None:
         if self._client is not None:
@@ -154,7 +169,7 @@ class MercadoLivreRealOAuthClient:
         return self._client
 
     def authorization_url(self, *, state: str, code_challenge: str) -> str:
-        self.settings.assert_enabled() if not self._synthetic_transport else self.settings.validate_configuration()
+        self.assert_operation_enabled()
         if not state or not code_challenge:
             raise RealReadOAuthError("mercadolivre_real_oauth_pkce_invalid")
         query = urlencode(
@@ -170,7 +185,7 @@ class MercadoLivreRealOAuthClient:
         return f"{_AUTH_BASE}/authorization?{query}"
 
     async def exchange(self, *, code: str, verifier: str) -> RealOAuthTokenSet:
-        self.settings.assert_enabled() if not self._synthetic_transport else self.settings.validate_configuration()
+        self.assert_operation_enabled()
         if not code or not verifier:
             raise RealReadOAuthError("mercadolivre_real_oauth_exchange_input_invalid")
         client = self._require_transport()
@@ -223,7 +238,7 @@ class MercadoLivreRealOAuthClient:
         return RealOAuthTokenSet(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_at=datetime.now(UTC) + timedelta(seconds=lifetime),
+            expires_at=self._clock() + timedelta(seconds=lifetime),
             scopes=scopes,
         )
 
@@ -240,7 +255,7 @@ class MercadoLivreRealOAuthClient:
 
 
 class RealOAuthTransactionStore:
-    """Real OAuth state store isolated from the synthetic state namespace."""
+    """Real OAuth states are isolated from the synthetic state namespace."""
 
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
@@ -263,7 +278,7 @@ class RealOAuthTransactionStore:
                 verifier_envelope=verifier_envelope,
                 redirect_uri=redirect_uri,
                 synthetic=False,
-                metadata_json=metadata,
+                metadata_json=sanitize_mapping(metadata),
                 created_at=created_at,
                 expires_at=expires_at,
             )
@@ -274,7 +289,12 @@ class RealOAuthTransactionStore:
             if (await session.execute(statement)).scalar_one_or_none() is None:
                 raise ValueError("oauth_transaction_conflict")
 
-    async def consume(self, *, state_hash: str, consumed_at: datetime) -> ConsumedTransaction | None:
+    async def consume(
+        self,
+        *,
+        state_hash: str,
+        consumed_at: datetime,
+    ) -> ConsumedTransaction | None:
         statement = (
             update(OAuthStateRecord)
             .where(
@@ -304,6 +324,103 @@ class RealOAuthTransactionStore:
             )
 
 
+class RealOAuthFinalizationStore:
+    """Atomically stores encrypted credentials, /users/me telemetry and success audit."""
+
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = sessions
+
+    async def finalize(
+        self,
+        *,
+        account_id: str,
+        access_envelope: bytes,
+        refresh_envelope: bytes,
+        expires_at: datetime,
+        scopes: tuple[str, ...],
+        key_version: str,
+        event: ChannelEvent,
+        correlation_id: str,
+        site_id: str | None,
+        schema_fingerprint: str,
+        finalized_at: datetime,
+    ) -> tuple[int, bool]:
+        credential = pg_insert(OAuthCredentialRecord).values(
+            marketplace="mercadolivre",
+            account_id=account_id,
+            access_envelope=access_envelope,
+            refresh_envelope=refresh_envelope,
+            expires_at=expires_at,
+            scopes_json=list(scopes),
+            key_version=key_version,
+            version=1,
+            status="active",
+            refresh_claim_id=None,
+            refresh_started_at=None,
+            last_refresh_at=None,
+        )
+        credential = credential.on_conflict_do_update(
+            constraint="uq_oauth_credentials_account",
+            set_={
+                "access_envelope": credential.excluded.access_envelope,
+                "refresh_envelope": credential.excluded.refresh_envelope,
+                "expires_at": credential.excluded.expires_at,
+                "scopes_json": credential.excluded.scopes_json,
+                "key_version": credential.excluded.key_version,
+                "version": OAuthCredentialRecord.version + 1,
+                "status": "active",
+                "refresh_claim_id": None,
+                "refresh_started_at": None,
+                "last_refresh_at": None,
+                "updated_at": finalized_at,
+            },
+        ).returning(OAuthCredentialRecord.version)
+
+        safe_attributes = sanitize_mapping(event.attributes)
+        channel = (
+            pg_insert(ChannelEventRecord)
+            .values(
+                marketplace=event.marketplace,
+                direction=event.direction,
+                operation=event.operation,
+                observed_at=event.observed_at,
+                status_code=event.status_code,
+                latency_ms=event.latency_ms,
+                attempt=event.attempt,
+                correlation_id=event.correlation_id,
+                request_id=event.request_id,
+                dedupe_key=channel_event_dedupe_key(event),
+                attributes=safe_attributes,
+            )
+            .on_conflict_do_nothing(constraint="uq_channel_events_dedupe_key")
+            .returning(ChannelEventRecord.id)
+        )
+
+        async with self._sessions() as session, session.begin():
+            version = int((await session.execute(credential)).scalar_one())
+            event_persisted = (await session.execute(channel)).scalar_one_or_none() is not None
+            session.add(
+                OAuthAuditRecord(
+                    correlation_id=correlation_id,
+                    marketplace="mercadolivre",
+                    action="real_read_callback",
+                    outcome="success",
+                    metadata_json=sanitize_mapping(
+                        {
+                            "account_id": account_id,
+                            "site_id": site_id,
+                            "credential_version": version,
+                            "users_me_status": event.status_code,
+                            "request_id": event.request_id,
+                            "schema_fingerprint": schema_fingerprint,
+                            "channel_event_persisted": event_persisted,
+                        }
+                    ),
+                )
+            )
+            return version, event_persisted
+
+
 class RealReadOAuthService:
     def __init__(
         self,
@@ -311,18 +428,16 @@ class RealReadOAuthService:
         settings: RealReadOAuthSettings,
         crypto: EnvelopeCrypto,
         transactions: RealOAuthTransactionStore,
-        credentials: OAuthCredentialStore,
+        finalization: RealOAuthFinalizationStore,
         audit: OAuthAuditStore,
-        channel_events: PostgresChannelEventRepository,
         client: MercadoLivreRealOAuthClient,
         clock: Clock,
     ) -> None:
         self.settings = settings
         self.crypto = crypto
         self.transactions = transactions
-        self.credentials = credentials
+        self.finalization = finalization
         self.audit = audit
-        self.channel_events = channel_events
         self.client = client
         self.clock = clock
 
@@ -332,7 +447,11 @@ class RealReadOAuthService:
         expected_account_id: str | None = None,
         correlation_id: str | None = None,
     ) -> RealAuthorizationPlan:
-        self.settings.assert_enabled() if not self.client._synthetic_transport else self.settings.validate_configuration()
+        self.client.assert_operation_enabled()
+        if expected_account_id and (
+            not expected_account_id.isdigit() or len(expected_account_id) > 32
+        ):
+            raise ValueError("mercadolivre_expected_account_id_invalid")
         now = self.clock()
         pkce = generate_pkce()
         expires_at = now + timedelta(seconds=self.settings.transaction_ttl_seconds)
@@ -356,7 +475,10 @@ class RealReadOAuthService:
             marketplace="mercadolivre",
             action="real_read_transaction_start",
             outcome="success",
-            metadata={"pkce_method": "S256", "expected_account_bound": bool(expected_account_id)},
+            metadata={
+                "pkce_method": "S256",
+                "expected_account_bound": bool(expected_account_id),
+            },
         )
         return RealAuthorizationPlan(
             authorization_url=self.client.authorization_url(
@@ -367,7 +489,9 @@ class RealReadOAuthService:
         )
 
     @staticmethod
-    def _identity(payload: dict[str, Any]) -> tuple[str, str | None, str | None, str | None]:
+    def _identity(
+        payload: dict[str, Any],
+    ) -> tuple[str, str | None, str | None, str | None]:
         raw_id = payload.get("id")
         if isinstance(raw_id, bool) or raw_id is None:
             raise RealReadOAuthError("mercadolivre_users_me_identity_missing")
@@ -386,10 +510,13 @@ class RealReadOAuthService:
         code: str,
         correlation_id: str | None = None,
     ) -> RealOAuthIdentity:
-        self.settings.assert_enabled() if not self.client._synthetic_transport else self.settings.validate_configuration()
+        self.client.assert_operation_enabled()
         correlation = correlation_id or uuid4().hex
         digest = state_digest(state)
-        transaction = await self.transactions.consume(state_hash=digest, consumed_at=self.clock())
+        transaction = await self.transactions.consume(
+            state_hash=digest,
+            consumed_at=self.clock(),
+        )
         if transaction is None:
             await self.audit.append(
                 correlation_id=correlation,
@@ -400,6 +527,8 @@ class RealReadOAuthService:
             )
             raise PermissionError("oauth_callback_rejected")
         try:
+            if transaction.redirect_uri != self.settings.redirect_uri:
+                raise PermissionError("oauth_redirect_binding_mismatch")
             verifier = self.crypto.open(
                 transaction.verifier_envelope,
                 context=f"oauth-real-state:{digest}",
@@ -410,21 +539,7 @@ class RealReadOAuthService:
             expected = transaction.metadata.get("expected_account_id")
             if expected is not None and str(expected) != account_id:
                 raise PermissionError("oauth_identity_binding_mismatch")
-            version = await self.credentials.put(
-                marketplace="mercadolivre",
-                account_id=account_id,
-                access_envelope=self.crypto.seal(
-                    tokens.access_token,
-                    context=f"oauth-access:mercadolivre:{account_id}",
-                ),
-                refresh_envelope=self.crypto.seal(
-                    tokens.refresh_token,
-                    context=f"oauth-refresh:mercadolivre:{account_id}",
-                ),
-                expires_at=tokens.expires_at,
-                scopes=tokens.scopes,
-                key_version=self.crypto.key_version,
-            )
+
             event = ChannelEvent(
                 marketplace="mercadolivre",
                 direction="outbound",
@@ -440,7 +555,25 @@ class RealReadOAuthService:
                     "operational_headers": users_me.telemetry.operational_headers,
                 },
             )
-            event_persisted = await self.channel_events.append_if_new(event)
+            version, event_persisted = await self.finalization.finalize(
+                account_id=account_id,
+                access_envelope=self.crypto.seal(
+                    tokens.access_token,
+                    context=f"oauth-access:mercadolivre:{account_id}",
+                ),
+                refresh_envelope=self.crypto.seal(
+                    tokens.refresh_token,
+                    context=f"oauth-refresh:mercadolivre:{account_id}",
+                ),
+                expires_at=tokens.expires_at,
+                scopes=tokens.scopes,
+                key_version=self.crypto.key_version,
+                event=event,
+                correlation_id=correlation,
+                site_id=site_id,
+                schema_fingerprint=users_me.schema_fingerprint,
+                finalized_at=self.clock(),
+            )
         except Exception as exc:
             await self.audit.append(
                 correlation_id=correlation,
@@ -450,21 +583,6 @@ class RealReadOAuthService:
                 reason=type(exc).__name__,
             )
             raise
-        await self.audit.append(
-            correlation_id=correlation,
-            marketplace="mercadolivre",
-            action="real_read_callback",
-            outcome="success",
-            metadata={
-                "account_id": account_id,
-                "site_id": site_id,
-                "credential_version": version,
-                "users_me_status": users_me.telemetry.status_code,
-                "request_id": users_me.telemetry.request_id,
-                "schema_fingerprint": users_me.schema_fingerprint,
-                "channel_event_persisted": event_persisted,
-            },
-        )
         return RealOAuthIdentity(
             account_id=account_id,
             site_id=site_id,
@@ -531,24 +649,27 @@ def build_real_read_oauth_runtime(
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> RealReadOAuthRuntime:
     settings.validate_configuration()
-    if not settings.real_read_enabled and not isinstance(transport, httpx.MockTransport):
-        # Construction is allowed for readiness inspection, but no real network client is created.
-        pass
     resolved_clock = clock or (lambda: datetime.now(UTC))
     crypto = EnvelopeCrypto(encryption_key)
     transactions = RealOAuthTransactionStore(sessions)
-    credentials = OAuthCredentialStore(sessions)
+    finalization = RealOAuthFinalizationStore(sessions)
     audit = OAuthAuditStore(sessions)
-    channel_events = PostgresChannelEventRepository(sessions)
-    client = MercadoLivreRealOAuthClient(settings, transport=transport)
+    client = MercadoLivreRealOAuthClient(
+        settings,
+        transport=transport,
+        clock=resolved_clock,
+    )
     service = RealReadOAuthService(
         settings=settings,
         crypto=crypto,
         transactions=transactions,
-        credentials=credentials,
+        finalization=finalization,
         audit=audit,
-        channel_events=channel_events,
         client=client,
         clock=resolved_clock,
     )
-    return RealReadOAuthRuntime(settings=settings, service=service, sessions=sessions)
+    return RealReadOAuthRuntime(
+        settings=settings,
+        service=service,
+        sessions=sessions,
+    )
