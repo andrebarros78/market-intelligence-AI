@@ -163,7 +163,7 @@ def test_iad_extracts_sovereign_components_without_claiming_cause() -> None:
     assert "regime_change_v1" in sources["traffic_deviation"]
 
 
-def test_unapproved_calibration_is_never_alert_eligible() -> None:
+def test_unapproved_request_calibration_is_never_alert_eligible() -> None:
     observation = RadarObservation(
         entity_id="EXPERIMENTAL",
         observed_at=datetime.now(UTC),
@@ -195,17 +195,34 @@ def test_unapproved_calibration_is_never_alert_eligible() -> None:
     assert result.attributes["iad_score"] > result.attributes["iad_threshold"]
     assert result.attributes["iad_decision"] is False
     assert result.attributes["alert_eligible"] is False
+    assert result.attributes["calibration_trust"] == "request_experimental"
     assert result.attributes["causal_claim"] is False
 
 
-def test_approved_historical_profile_can_promote_calibrated_iad() -> None:
+def test_request_payload_cannot_self_promote_an_approved_profile() -> None:
     observation = RadarObservation(
-        entity_id="HISTORICAL-FIXTURE",
+        entity_id="UNTRUSTED-APPROVAL",
         observed_at=datetime.now(UTC),
         metrics={},
         context={"iad_calibration": _approved_profile()},
     )
     result = DistributionAnomalyIndex().evaluate(
+        observation,
+        [
+            _result("robust_zscore", 0.95, metric="visits"),
+            _result("relational_control_v1", 0.95, metric="visits"),
+        ],
+    )
+    assert result is None
+
+
+def test_trusted_runtime_profile_can_promote_calibrated_iad() -> None:
+    observation = RadarObservation(
+        entity_id="HISTORICAL-FIXTURE",
+        observed_at=datetime.now(UTC),
+        metrics={},
+    )
+    result = DistributionAnomalyIndex(trusted_profile=_approved_profile()).evaluate(
         observation,
         [
             _result("robust_zscore", 0.90, metric="visits"),
@@ -217,11 +234,12 @@ def test_approved_historical_profile_can_promote_calibrated_iad() -> None:
     assert result.score >= 0.60
     assert result.attributes["iad_decision"] is True
     assert result.attributes["alert_eligible"] is True
+    assert result.attributes["calibration_trust"] == "trusted_runtime"
     assert result.attributes["causal_claim"] is False
     assert result.attributes["internal_platform_cause_confirmed"] is False
 
 
-def test_default_radar_requires_explicit_iad_calibration() -> None:
+def test_default_radar_has_no_iad_without_calibration() -> None:
     finding = build_default_radar().evaluate(_observation())
     assert all(
         result.detector != "distribution_anomaly_index_v1"
@@ -229,8 +247,16 @@ def test_default_radar_requires_explicit_iad_calibration() -> None:
     )
 
 
-def test_default_radar_registers_iad_after_base_detectors() -> None:
+def test_default_radar_rejects_request_self_promotion() -> None:
     finding = build_default_radar().evaluate(_observation(calibration=_approved_profile()))
+    assert all(
+        result.detector != "distribution_anomaly_index_v1"
+        for result in finding.detector_results
+    )
+
+
+def test_default_radar_registers_iad_from_trusted_runtime_profile() -> None:
+    finding = build_default_radar(iad_profile=_approved_profile()).evaluate(_observation())
     iad = next(
         result for result in finding.detector_results
         if result.detector == "distribution_anomaly_index_v1"
@@ -240,3 +266,4 @@ def test_default_radar_registers_iad_after_base_detectors() -> None:
     assert iad.attributes["components"]["control_divergence"] >= 0.60
     assert iad.attributes["iad_decision"] is True
     assert iad.attributes["calibration_version"] == "historical-fixture-v1"
+    assert iad.attributes["calibration_trust"] == "trusted_runtime"
