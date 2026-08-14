@@ -6,6 +6,8 @@ from typing import Any
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from market_intelligence.ai.status import runtime_ai_status
+from market_intelligence.ai.vault import AIVault
 from market_intelligence.api.feedback import build_feedback_router
 from market_intelligence.api.ingestion import build_synthetic_ingestion_router
 from market_intelligence.api.oauth import build_synthetic_oauth_router
@@ -33,6 +35,10 @@ def create_app(
     cfg = settings or Settings.from_env()
     # Sovereign Module 01 invariant: the process does not start with marketplace writes enabled.
     cfg.assert_module01_operational_security()
+
+    ai_vault = AIVault.from_env()
+    ai_status = runtime_ai_status(ai_vault)
+    ai_vault_status = ai_vault.public_status()
 
     trusted_iad_profile = (
         iad_profile
@@ -74,11 +80,29 @@ def create_app(
             "synthetic_ingestion_workflow_configured": ingestion_engine is not None,
             "posterior_feedback_persistence_configured": feedback_sessions is not None,
             "posterior_feedback_http_calibration_trusted": False,
+            "ai_vault_capacity": ai_vault_status["capacity"],
+            "ai_system_profile_slot": ai_vault.system_profile_slot,
+            "ai_agents_profile_slot": ai_vault.agents_profile_slot,
+            "ai_system_configured": ai_status["system"]["configured"],
+            "ai_agents_configured": ai_status["agents"]["configured"],
+            "ai_inference_enabled": False,
         }
 
     @app.get("/v1/system/capabilities")
     def capabilities() -> dict[str, object]:
         return {
+            "ai": {
+                "provider_manager": True,
+                "vault_capacity": ai_vault_status["capacity"],
+                "system_profile_slot": ai_vault.system_profile_slot,
+                "agents_profile_slot": ai_vault.agents_profile_slot,
+                "system": ai_status["system"],
+                "agents": ai_status["agents"],
+                "profiles": ai_vault_status["profiles"],
+                "inference_enabled": False,
+                "arbitrary_provider_network_blocked_without_adapter": True,
+                "credential_values_exposed": False,
+            },
             "marketplaces": ["mercadolivre"],
             "operational_security": {
                 "policy_version": MODULE01_SECURITY_POLICY.version,
