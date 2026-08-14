@@ -29,7 +29,7 @@ SANDBOX_MAX_OUTPUT_TOKENS_LIMIT = 256
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "openai": ("gpt-5-mini", "https://api.openai.com/v1"),
     "gemini": ("gemini-3.6-flash", "https://generativelanguage.googleapis.com/v1beta"),
-    "zai": ("glm-5.1", "https://api.z.ai/api/paas/v4"),
+    "zai": ("glm-4.7-flash", "https://api.z.ai/api/paas/v4"),
 }
 
 
