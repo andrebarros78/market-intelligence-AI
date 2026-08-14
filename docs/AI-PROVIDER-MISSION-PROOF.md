@@ -1,47 +1,140 @@
-# GPT do sistema + Gemini dos agentes — prova de conexão
+# GPT do sistema + Z.AI/GLM dos agentes — prova de conexão
 
-## Escopo
+## Estado
 
-Esta etapa prova a conectividade autenticada de duas credenciais independentes do API ML:
+**MISSION_PROVEN** para a missão de conexão das APIs de IA ao API ML.
+
+Esta conclusão se refere exclusivamente à conexão autenticada das IAs. Não significa conclusão integral do API ML nem ativação de escrita no Mercado Livre.
+
+## Arquitetura comprovada
+
+O API ML mantém dois papéis de IA independentes por meio do `ProviderManager`:
 
 - `system`: OpenAI/GPT, responsável pela inteligência do sistema;
-- `agents`: Google/Gemini, exclusivo dos agentes/workers.
+- `agents`: Z.AI/GLM, exclusivo dos agentes/workers.
 
-Não executa inferência, não envia dados de negócio e não altera o Mercado Livre.
+Credenciais:
 
-## Gate técnico
+- `MI_AI_SYSTEM_API_KEY`: OpenAI/GPT;
+- `MI_AI_AGENTS_API_KEY`: Z.AI/GLM.
 
-O workflow `.github/workflows/ai-provider-connectivity.yml` usa o Environment GitHub `INTELIGENCI DE MERCADO API` e executa dois jobs independentes:
+Os agentes não herdam a credencial do sistema. Gemini permanece apenas como provider opcional na abstração e não é o provider atual dos agentes.
 
-- `system-gpt`: chama somente `GET https://api.openai.com/v1/models`;
-- `agents-gemini`: chama somente `GET https://generativelanguage.googleapis.com/v1beta/models`.
+## Configuração validada
 
-A execução é aprovada somente quando os dois papéis retornarem:
+### Sistema
 
+- provider: `openai`;
+- modelo: `gpt-5-mini`;
+- endpoint: `https://api.openai.com/v1`;
+- probe: `GET /v1/models`;
+- autenticação: Bearer.
+
+### Agentes
+
+- provider: `zai`;
+- modelo: `glm-5.1`;
+- endpoint: `https://api.z.ai/api/paas/v4`;
+- probe: `GET /api/paas/v4/models`;
+- autenticação: Bearer.
+
+## Evidência técnica
+
+### Implementação Z.AI
+
+- PR #44: `GPT sistema + Z.AI GLM agentes — conexão autenticada`;
+- head validado: `9bef2042c02952df1cf9efd909a0dc91e18f5886`;
+- CI de branch #181 / run `31812167894`: sucesso integral;
+- merge PR #44: `5b7d74f6e85e430191ff12bdb42ee113d2763ed3`.
+
+O primeiro gate autenticado após esse merge provou que:
+
+- a chave Z.AI já autenticava e o job `agents-zai` passava;
+- a chave OpenAI também autenticava, mas o valor antigo de `MI_AI_SYSTEM_MODEL` armazenado como Secret apontava para modelo indisponível;
+- a falha era de configuração de modelo, não da chave OpenAI.
+
+### Correção do modelo
+
+- PR #45: `Corrigir configuração pública dos modelos de IA`;
+- head validado: `57cfa77f10521fef1a42e3461e1c0cbb369d1ce0`;
+- CI de branch #183 / run `31812535546`: sucesso integral;
+- merge PR #45: `9528c3f896a7ebb889342d3d876966a5490a1df6`.
+
+Modelos deixaram de ser tratados como Secrets. O gate passou a usar configuração pública explícita:
+
+- `gpt-5-mini` para `system`;
+- `glm-5.1` para `agents`.
+
+### Gate autenticado final
+
+Workflow: `AI Provider Connectivity`
+
+- run #3;
+- run id: `31812722075`;
+- SHA testado: `9528c3f896a7ebb889342d3d876966a5490a1df6`;
+- conclusão global: `success`.
+
+Resultado `system-gpt`:
+
+- `provider=openai`;
+- `model=gpt-5-mini`;
 - `authenticated=true`;
 - `model_available=true`;
+- `endpoint_host=api.openai.com`;
 - `inference_executed=false`;
-- `business_data_sent=false`.
+- `business_data_sent=false`;
+- `status=ok`.
 
-## Segurança
+Resultado `agents-zai`:
 
-- as chaves entram somente pelo contexto `secrets` do Environment;
-- os nomes esperados são `MI_AI_SYSTEM_API_KEY` e `MI_AI_AGENTS_API_KEY`;
-- a chave dos agentes nunca herda a chave do sistema;
-- o probe não imprime nenhuma credencial;
+- `provider=zai`;
+- `model=glm-5.1`;
+- `authenticated=true`;
+- `model_available=true`;
+- `endpoint_host=api.z.ai`;
+- `inference_executed=false`;
+- `business_data_sent=false`;
+- `status=ok`.
+
+### Regressão pós-merge
+
+Workflow `Validate Market Intelligence Base`:
+
+- run #184;
+- run id: `31812722077`;
+- SHA testado: `9528c3f896a7ebb889342d3d876966a5490a1df6`;
+- Install: success;
+- Compile: success;
+- PostgreSQL migration: success;
+- migration drift: success;
+- migration rollback: success;
+- suíte de testes: success;
+- conclusão global: success.
+
+## Segurança comprovada
+
+- nenhuma chave foi versionada;
+- Secrets apareceram mascarados nos logs do GitHub Actions;
+- nenhum valor de chave foi impresso pelo probe;
+- os probes não executaram inferência;
+- nenhum dado de negócio do API ML/Mercado Livre foi enviado aos provedores;
 - redirects ficam desabilitados;
-- OpenAI aceita somente HTTPS + `api.openai.com` + `/v1`;
-- Gemini aceita somente HTTPS + `generativelanguage.googleapis.com` + `/v1beta`;
-- não há chamada de geração de conteúdo nesta etapa.
+- drivers aceitam somente HTTPS, host e base URL oficiais configurados para cada provider;
+- nenhuma escrita no Mercado Livre foi ativada por esta missão.
 
 ## Critério MISSION_PROVEN
 
-`MISSION_PROVEN` exige, cumulativamente:
+Todos os gates desta missão foram satisfeitos:
 
-1. CI sintético completo verde no head final;
-2. merge pelo head verde exato;
-3. CI pós-merge verde;
-4. workflow autenticado no `main` com `system-gpt` verde;
-5. workflow autenticado no `main` com `agents-gemini` verde;
-6. ausência de chave em logs/artefatos;
-7. documentação final registrando os SHAs e runs aprovados.
+1. Provider Manager desacoplado: **aprovado**;
+2. GPT/OpenAI exclusivo do papel `system`: **aprovado**;
+3. Z.AI/GLM exclusivo do papel `agents`: **aprovado**;
+4. credenciais separadas: **aprovado**;
+5. CI de implementação: **aprovado**;
+6. OpenAI autenticado e modelo disponível: **aprovado**;
+7. Z.AI autenticado e modelo disponível: **aprovado**;
+8. nenhuma inferência no probe: **aprovado**;
+9. nenhum dado de negócio no probe: **aprovado**;
+10. regressão integral pós-merge: **aprovado**.
+
+**Estado: MISSION_PROVEN.**
