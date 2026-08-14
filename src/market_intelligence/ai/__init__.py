@@ -1,3 +1,9 @@
+from market_intelligence.ai.data_gateway import (
+    AI_DATA_GATEWAY,
+    AI_DATA_GATEWAY_VERSION,
+    AIDataGateway,
+    AIDataGatewayResult,
+)
 from market_intelligence.ai.providers import (
     AIProviderConfig,
     AIProviderInferenceResult,
@@ -20,6 +26,10 @@ from market_intelligence.ai.vault import (
 )
 
 __all__ = [
+    "AI_DATA_GATEWAY",
+    "AI_DATA_GATEWAY_VERSION",
+    "AIDataGateway",
+    "AIDataGatewayResult",
     "AIProviderConfig",
     "AIProviderInferenceResult",
     "AIProviderProbeResult",
