@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from market_intelligence.core.security import MODULE01_SECURITY_POLICY
+
 
 @dataclass(frozen=True, slots=True)
 class Settings:
@@ -28,6 +30,12 @@ class Settings:
             temporal_namespace=os.getenv("MI_TEMPORAL_NAMESPACE", "default"),
             temporal_task_queue=os.getenv("MI_TEMPORAL_TASK_QUEUE", "market-intelligence"),
             temporal_tls=os.getenv("MI_TEMPORAL_TLS", "false").lower() == "true",
+        )
+
+    def assert_module01_operational_security(self) -> None:
+        MODULE01_SECURITY_POLICY.assert_runtime_settings(
+            read_only=self.read_only,
+            allow_marketplace_writes=self.allow_marketplace_writes,
         )
 
     def assert_marketplace_write_allowed(self) -> None:
