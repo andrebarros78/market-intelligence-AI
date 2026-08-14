@@ -30,7 +30,7 @@ def test_system_and_agents_runtime_status_never_exposes_secret(monkeypatch) -> N
     monkeypatch.setenv("MI_AI_SYSTEM_PROVIDER", "openai")
     monkeypatch.setenv("MI_AI_SYSTEM_MODEL", "gpt-5-mini")
     monkeypatch.setenv("MI_AI_AGENTS_PROVIDER", "zai")
-    monkeypatch.setenv("MI_AI_AGENTS_MODEL", "glm-5.1")
+    monkeypatch.setenv("MI_AI_AGENTS_MODEL", "glm-4.7-flash")
 
     status = runtime_ai_status()
     system = status["system"]
@@ -68,9 +68,9 @@ def test_runtime_status_uses_explicit_profile_1_and_2_over_legacy(monkeypatch) -
 
     profile_2 = "MI_AI_PROFILE_2"
     monkeypatch.setenv(f"{profile_2}_ENABLED", "true")
-    monkeypatch.setenv(f"{profile_2}_NAME", "Agents GLM Profile")
+    monkeypatch.setenv(f"{profile_2}_NAME", "Agents GLM-4.7-Flash Profile")
     monkeypatch.setenv(f"{profile_2}_PROVIDER", "zai")
-    monkeypatch.setenv(f"{profile_2}_MODEL", "glm-5.1")
+    monkeypatch.setenv(f"{profile_2}_MODEL", "glm-4.7-flash")
     monkeypatch.setenv(f"{profile_2}_BASE_URL", "https://api.z.ai/api/paas/v4")
     monkeypatch.setenv(f"{profile_2}_API_KEY", "profile-agents-secret")
     monkeypatch.setenv("MI_AI_SYSTEM_PROFILE", "1")
@@ -82,7 +82,7 @@ def test_runtime_status_uses_explicit_profile_1_and_2_over_legacy(monkeypatch) -
     assert status["system"]["profile_slot"] == 1
     assert status["system"]["profile_name"] == "System GPT Profile"
     assert status["agents"]["profile_slot"] == 2
-    assert status["agents"]["profile_name"] == "Agents GLM Profile"
+    assert status["agents"]["profile_name"] == "Agents GLM-4.7-Flash Profile"
     assert "profile-system-secret" not in rendered
     assert "profile-agents-secret" not in rendered
     assert "legacy-system-secret" not in rendered
