@@ -8,6 +8,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from market_intelligence.workflows.names import (
+    ACTIVITY_ADVANCE_INVESTIGATION,
     ACTIVITY_EVALUATE_RADAR,
     ACTIVITY_FETCH_RESOURCE,
     ACTIVITY_PERSIST_CHANNEL_EVENT,
@@ -47,6 +48,7 @@ class MarketIntelligenceIngestionWorkflow:
             "radar_evaluated": False,
             "radar_finding": None,
             "alert_created": False,
+            "investigation": None,
         }
 
         channel_event = payload.get("channel_event")
@@ -135,6 +137,18 @@ class MarketIntelligenceIngestionWorkflow:
                     schedule_to_close_timeout=timedelta(minutes=2),
                     retry_policy=_retry_policy(maximum_attempts=5, maximum_interval_seconds=8),
                 )
+            )
+            result["investigation"] = await workflow.execute_activity(
+                ACTIVITY_ADVANCE_INVESTIGATION,
+                {
+                    "marketplace": marketplace,
+                    "entity_type": str(entity_type),
+                    "observation": radar_observation,
+                    "finding": finding,
+                },
+                start_to_close_timeout=timedelta(seconds=30),
+                schedule_to_close_timeout=timedelta(minutes=2),
+                retry_policy=_retry_policy(maximum_attempts=5, maximum_interval_seconds=8),
             )
 
         return result
