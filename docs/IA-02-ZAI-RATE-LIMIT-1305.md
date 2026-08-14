@@ -58,7 +58,7 @@ Não há evidência, neste teste, de:
 - autenticação 401/403;
 - endpoint incorreto;
 - envio de dados do Mercado Livre;
-- falha estrutural no API ML.
+- falha estrutural no Market Intelligence AI.
 
 ## Estado da IA-02
 

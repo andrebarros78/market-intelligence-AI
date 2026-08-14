@@ -61,7 +61,7 @@ def ai_request_key(*, request_id: str, role: str) -> str:
 
 def ai_workflow_id(*, request_id: str, role: str) -> str:
     normalized_role = role.strip().lower()
-    return f"api-ml-ai-{normalized_role}-{ai_request_key(request_id=request_id, role=role)}"
+    return f"market-intelligence-ai-{normalized_role}-{ai_request_key(request_id=request_id, role=role)}"
 
 
 def build_sandbox_ai_job(*, request_id: str, role: str) -> dict[str, str]:

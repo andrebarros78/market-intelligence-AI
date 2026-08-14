@@ -32,7 +32,7 @@ async def _run(*, role: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the dedicated API ML Temporal AI worker.")
+    parser = argparse.ArgumentParser(description="Run the dedicated Market Intelligence AI Temporal AI worker.")
     parser.add_argument("--role", choices=("system", "agents"), required=True)
     args = parser.parse_args()
     asyncio.run(_run(role=args.role))

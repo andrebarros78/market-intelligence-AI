@@ -2,7 +2,7 @@
 
 ## Estado final
 
-**MISSION_PROVEN** para a conexão das APIs de IA do API ML.
+**MISSION_PROVEN** para a conexão das APIs de IA do Market Intelligence AI.
 
 - Provider Manager: implementado e desacoplado;
 - papel `system`: OpenAI/GPT;
@@ -23,4 +23,4 @@
 
 ## Limites
 
-Esta prova confirma conectividade, autenticação, disponibilidade dos modelos e isolamento de credenciais. Ela deliberadamente não executou geração de conteúdo, não mediu qualidade/custo de inferência, não ativou escrita no Mercado Livre e não conclui o projeto API ML como um todo.
+Esta prova confirma conectividade, autenticação, disponibilidade dos modelos e isolamento de credenciais. Ela deliberadamente não executou geração de conteúdo, não mediu qualidade/custo de inferência, não ativou escrita no Mercado Livre e não conclui o projeto Market Intelligence AI como um todo.

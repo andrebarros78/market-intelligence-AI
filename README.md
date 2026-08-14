@@ -4,7 +4,7 @@ Núcleo do **Market Intelligence IA** — plataforma de inteligência de mercado
 
 ## Estado atual
 
-A base foi reconstruída após auditoria do antigo API ML. O projeto não foi reiniciado do zero: capacidades e evidências válidas foram preservadas como referência, enquanto a arquitetura antiga quebrada não foi reproduzida.
+A base atual preserva capacidades e evidências válidas, com arquitetura orientada a múltiplos marketplaces, workflows duráveis, rastreabilidade e separação entre fatos, inferências e hipóteses.
 
 Esta versão é **read-only, sem OAuth real, sem chamadas reais ao Mercado Livre e sem escrita externa**.
 

@@ -11,7 +11,7 @@ import httpx
 
 MODEL = "glm-4.7-flash"
 ENDPOINT = "https://api.z.ai/api/paas/v4/chat/completions"
-PROMPT = "Synthetic API ML diagnostic. Reply with exactly SANDBOX_OK and no other text."
+PROMPT = "Synthetic Market Intelligence AI diagnostic. Reply with exactly SANDBOX_OK and no other text."
 _SAFE_CODE = re.compile(r"^[0-9]{4}$")
 
 

@@ -14,7 +14,7 @@ permissions:
 jobs:
   diagnose-zai:
     concurrency:
-      group: api-ml-zai-429-diagnostic
+      group: market-intelligence-zai-429-diagnostic
       cancel-in-progress: false
     runs-on: ubuntu-latest
     environment: INTELIGENCI DE MERCADO API

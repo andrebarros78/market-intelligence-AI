@@ -1,12 +1,12 @@
-# Conexão das APIs de IA ao API ML via GitHub
+# Conexão das APIs de IA ao Market Intelligence AI via GitHub
 
 ## Objetivo
 
-O API ML consome IA por contrato estável através do `ProviderManager`. GitHub guarda código, CI e segredos; não é barramento de runtime.
+O Market Intelligence AI consome IA por contrato estável através do `ProviderManager`. GitHub guarda código, CI e segredos; não é barramento de runtime.
 
 O projeto possui dois papéis de IA independentes:
 
-1. `system`: inteligência responsável pelo próprio sistema API ML — OpenAI/GPT;
+1. `system`: inteligência responsável pelo próprio sistema Market Intelligence AI — OpenAI/GPT;
 2. `agents`: capacidade de IA utilizada pelos agentes/workers autorizados — Z.AI/GLM.
 
 As credenciais são independentes e nunca são compartilhadas entre os dois papéis.

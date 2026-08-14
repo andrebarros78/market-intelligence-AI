@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-O API ML possui capacidade fixa de **5 perfis de IA**. Cada perfil é uma ficha completa e independente para um provedor/modelo. O sistema não compartilha credenciais entre perfis e não assume que todos os provedores usam o mesmo método de autenticação.
+O Market Intelligence AI possui capacidade fixa de **5 perfis de IA**. Cada perfil é uma ficha completa e independente para um provedor/modelo. O sistema não compartilha credenciais entre perfis e não assume que todos os provedores usam o mesmo método de autenticação.
 
 Os perfis são nomeados de forma uniforme:
 

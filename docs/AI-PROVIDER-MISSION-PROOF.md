@@ -2,13 +2,13 @@
 
 ## Estado
 
-**MISSION_PROVEN** para a missão de conexão das APIs de IA ao API ML.
+**MISSION_PROVEN** para a missão de conexão das APIs de IA ao Market Intelligence AI.
 
-Esta conclusão se refere exclusivamente à conexão autenticada das IAs. Não significa conclusão integral do API ML nem ativação de escrita no Mercado Livre.
+Esta conclusão se refere exclusivamente à conexão autenticada das IAs. Não significa conclusão integral do Market Intelligence AI nem ativação de escrita no Mercado Livre.
 
 ## Arquitetura comprovada
 
-O API ML mantém dois papéis de IA independentes por meio do `ProviderManager`:
+O Market Intelligence AI mantém dois papéis de IA independentes por meio do `ProviderManager`:
 
 - `system`: OpenAI/GPT, responsável pela inteligência do sistema;
 - `agents`: Z.AI/GLM, exclusivo dos agentes/workers.
@@ -117,7 +117,7 @@ Workflow `Validate Market Intelligence Base`:
 - Secrets apareceram mascarados nos logs do GitHub Actions;
 - nenhum valor de chave foi impresso pelo probe;
 - os probes não executaram inferência;
-- nenhum dado de negócio do API ML/Mercado Livre foi enviado aos provedores;
+- nenhum dado de negócio do Market Intelligence AI/Mercado Livre foi enviado aos provedores;
 - redirects ficam desabilitados;
 - drivers aceitam somente HTTPS, host e base URL oficiais configurados para cada provider;
 - nenhuma escrita no Mercado Livre foi ativada por esta missão.
