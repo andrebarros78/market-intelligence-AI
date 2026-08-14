@@ -101,6 +101,12 @@ def create_app(
                 "counterfactual": False,
                 "unexplained_residual_detector": True,
                 "unexplained_residual_detector_version": "unexplained-residual@1.0.0",
+                "distribution_anomaly_index": True,
+                "distribution_anomaly_index_version": "distribution-anomaly-index@1.0.0",
+                "iad_calibrator_version": "iad-calibrator@1.0.0",
+                "iad_requires_versioned_calibration": True,
+                "iad_production_calibrated": False,
+                "iad_causal_claim": False,
             },
             "channel_sensor": True,
             "channel_sensor_details": {
