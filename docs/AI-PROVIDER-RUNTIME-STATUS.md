@@ -1,4 +1,4 @@
-# Status seguro das IAs do API ML
+# Status seguro das IAs do Market Intelligence AI
 
 O módulo `market_intelligence.ai.status` expõe somente metadados não secretos de configuração para os papéis `system` e `agents`.
 

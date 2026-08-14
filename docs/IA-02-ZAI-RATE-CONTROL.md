@@ -4,7 +4,7 @@ Data: 2026-08-14
 
 ## Evidência de origem
 
-O diagnóstico controlado do API ML comprovou HTTP 429 com código Z.AI `1305` ao chamar `glm-4.7-flash`. A integração, autenticação e endpoint já haviam sido isolados dos dados de negócio.
+O diagnóstico controlado do Market Intelligence AI comprovou HTTP 429 com código Z.AI `1305` ao chamar `glm-4.7-flash`. A integração, autenticação e endpoint já haviam sido isolados dos dados de negócio.
 
 ## Controle implementado
 
@@ -28,7 +28,7 @@ Para o sandbox continua valendo o limite anterior: no máximo um retry configura
 
 ## Limite arquitetural explícito
 
-`InProcessProviderTrafficGate` coordena somente requisições dentro de um processo do API ML. Ele reduz burst local e protege o adapter, mas não substitui a fila persistente de jobs/orquestração quando houver múltiplos processos, réplicas ou workers.
+`InProcessProviderTrafficGate` coordena somente requisições dentro de um processo do Market Intelligence AI. Ele reduz burst local e protege o adapter, mas não substitui a fila persistente de jobs/orquestração quando houver múltiplos processos, réplicas ou workers.
 
 A coordenação multi-worker deverá ser feita pela camada persistente já responsável por jobs e execução, evitando introduzir estado distribuído dentro do adapter de provedor.
 

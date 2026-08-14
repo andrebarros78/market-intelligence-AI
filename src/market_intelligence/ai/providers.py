@@ -22,7 +22,7 @@ class ProviderConfigurationError(RuntimeError):
 AI_ROLES = {"system", "agents"}
 SANDBOX_EXPECTED_OUTPUT = "SANDBOX_OK"
 SANDBOX_PROMPT = (
-    "Synthetic API ML sandbox test. Reply with exactly SANDBOX_OK and no other text."
+    "Synthetic Market Intelligence AI sandbox test. Reply with exactly SANDBOX_OK and no other text."
 )
 SANDBOX_MAX_OUTPUT_TOKENS_LIMIT = 256
 
