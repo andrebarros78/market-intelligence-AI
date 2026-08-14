@@ -1,0 +1,52 @@
+name: AI Provider Connectivity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ai-provider-connectivity.yml'
+      - 'src/market_intelligence/ai/**'
+      - 'scripts/probe_ai_provider.py'
+
+permissions:
+  contents: read
+
+jobs:
+  system-gpt:
+    runs-on: ubuntu-latest
+    environment: INTELIGENCI DE MERCADO API
+    env:
+      MI_AI_SYSTEM_PROVIDER: openai
+      MI_AI_SYSTEM_MODEL: ${{ secrets.MI_AI_SYSTEM_MODEL || 'gpt-5-mini' }}
+      MI_AI_SYSTEM_BASE_URL: https://api.openai.com/v1
+      MI_AI_SYSTEM_API_KEY: ${{ secrets.MI_AI_SYSTEM_API_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Probe GPT system without inference or business data
+        run: python scripts/probe_ai_provider.py --role system
+
+  agents-gemini:
+    runs-on: ubuntu-latest
+    environment: INTELIGENCI DE MERCADO API
+    env:
+      MI_AI_AGENTS_PROVIDER: gemini
+      MI_AI_AGENTS_MODEL: ${{ secrets.MI_AI_AGENTS_MODEL || 'gemini-3.6-flash' }}
+      MI_AI_AGENTS_BASE_URL: https://generativelanguage.googleapis.com/v1beta
+      MI_AI_AGENTS_API_KEY: ${{ secrets.MI_AI_AGENTS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Probe Gemini agents without inference or business data
+        run: python scripts/probe_ai_provider.py --role agents

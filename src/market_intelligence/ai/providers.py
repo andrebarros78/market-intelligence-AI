@@ -38,47 +38,47 @@ class AIProviderConfig:
             raise ProviderConfigurationError("ai_provider_role_not_supported")
 
         role_prefix = f"MI_AI_{normalized_role.upper()}"
-        legacy_allowed = normalized_role == "system"
+        is_system = normalized_role == "system"
+        default_provider = "openai" if is_system else "gemini"
 
         provider = (
             os.getenv(f"{role_prefix}_PROVIDER")
-            or (os.getenv("MI_AI_PROVIDER") if legacy_allowed else None)
-            or "gemini"
+            or default_provider
         ).strip().lower()
 
-        default_model = "gemini-3.6-flash" if provider == "gemini" else "gpt-5-mini"
+        default_model = "gpt-5-mini" if provider == "openai" else "gemini-3.6-flash"
         default_base_url = (
-            "https://generativelanguage.googleapis.com/v1beta"
-            if provider == "gemini"
-            else "https://api.openai.com/v1"
+            "https://api.openai.com/v1"
+            if provider == "openai"
+            else "https://generativelanguage.googleapis.com/v1beta"
         )
 
         model = (
             os.getenv(f"{role_prefix}_MODEL")
-            or (os.getenv("MI_AI_MODEL") if legacy_allowed else None)
+            or (os.getenv("MI_AI_MODEL") if is_system else None)
             or default_model
         ).strip()
         base_url = (
             os.getenv(f"{role_prefix}_BASE_URL")
-            or (os.getenv("MI_AI_BASE_URL") if legacy_allowed else None)
+            or (os.getenv("MI_AI_BASE_URL") if is_system else None)
             or default_base_url
         ).strip()
         raw_key = os.getenv(f"{role_prefix}_API_KEY") or (
-            os.getenv("MI_AI_API_KEY") if legacy_allowed else None
+            os.getenv("MI_AI_API_KEY") if is_system else None
         )
         raw_retries = (
             os.getenv(f"{role_prefix}_RETRIES")
-            or (os.getenv("MI_AI_RETRIES") if legacy_allowed else None)
+            or (os.getenv("MI_AI_RETRIES") if is_system else None)
             or "0"
         )
         raw_timeout = (
             os.getenv(f"{role_prefix}_TIMEOUT_SECONDS")
-            or (os.getenv("MI_AI_TIMEOUT_SECONDS") if legacy_allowed else None)
+            or (os.getenv("MI_AI_TIMEOUT_SECONDS") if is_system else None)
             or "20"
         )
         raw_store = (
             os.getenv(f"{role_prefix}_STORE")
-            or (os.getenv("MI_AI_STORE") if legacy_allowed else None)
+            or (os.getenv("MI_AI_STORE") if is_system else None)
             or "false"
         )
 

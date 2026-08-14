@@ -28,10 +28,18 @@ async def test_openai_probe_authenticates_and_finds_configured_model_without_inf
             json={"object": "list", "data": [{"id": "gpt-5-mini", "object": "model"}]},
         )
 
-    config = AIProviderConfig(api_key=SecretStr("synthetic-provider-credential"))
+    config = AIProviderConfig(
+        role="system",
+        provider="openai",
+        model="gpt-5-mini",
+        base_url="https://api.openai.com/v1",
+        api_key=SecretStr("synthetic-openai-credential"),
+    )
     driver = OpenAIResponsesDriver(config, transport=httpx.MockTransport(handler))
     result = await driver.probe()
 
+    assert result.role == "system"
+    assert result.provider == "openai"
     assert result.authenticated is True
     assert result.model_available is True
     assert result.inference_executed is False
@@ -40,7 +48,7 @@ async def test_openai_probe_authenticates_and_finds_configured_model_without_inf
         "method": "GET",
         "host": "api.openai.com",
         "path": "/v1/models",
-        "authorization": "Bearer synthetic-provider-credential",
+        "authorization": "Bearer synthetic-openai-credential",
     }
 
 
@@ -68,7 +76,7 @@ async def test_gemini_probe_uses_google_header_and_no_inference() -> None:
         )
 
     config = AIProviderConfig(
-        role="system",
+        role="agents",
         provider="gemini",
         model="gemini-3.6-flash",
         base_url="https://generativelanguage.googleapis.com/v1beta",
@@ -77,7 +85,7 @@ async def test_gemini_probe_uses_google_header_and_no_inference() -> None:
     driver = GeminiDriver(config, transport=httpx.MockTransport(handler))
     result = await driver.probe()
 
-    assert result.role == "system"
+    assert result.role == "agents"
     assert result.provider == "gemini"
     assert result.authenticated is True
     assert result.model_available is True
@@ -123,7 +131,7 @@ def test_openai_driver_rejects_credential_exfiltration_host() -> None:
 
 def test_gemini_driver_rejects_credential_exfiltration_host() -> None:
     config = AIProviderConfig(
-        role="system",
+        role="agents",
         provider="gemini",
         model="gemini-3.6-flash",
         base_url="https://attacker.invalid/v1beta",
@@ -142,24 +150,57 @@ def test_provider_manager_keeps_provider_selection_configurable() -> None:
     assert caught.value.code == "ai_provider_not_supported"
 
 
-def test_system_and_agents_read_separate_gemini_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MI_AI_SYSTEM_PROVIDER", "gemini")
-    monkeypatch.setenv("MI_AI_SYSTEM_MODEL", "gemini-3.6-flash")
-    monkeypatch.setenv("MI_AI_SYSTEM_API_KEY", "system-secret")
+def test_system_defaults_to_gpt_and_agents_default_to_gemini(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "MI_AI_SYSTEM_PROVIDER",
+        "MI_AI_SYSTEM_MODEL",
+        "MI_AI_SYSTEM_BASE_URL",
+        "MI_AI_AGENTS_PROVIDER",
+        "MI_AI_AGENTS_MODEL",
+        "MI_AI_AGENTS_BASE_URL",
+        "MI_AI_PROVIDER",
+        "MI_AI_MODEL",
+        "MI_AI_BASE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    system = AIProviderConfig.from_env(role="system")
+    agents = AIProviderConfig.from_env(role="agents")
+
+    assert system.provider == "openai"
+    assert system.model == "gpt-5-mini"
+    assert system.base_url == "https://api.openai.com/v1"
+    assert agents.provider == "gemini"
+    assert agents.model == "gemini-3.6-flash"
+    assert agents.base_url == "https://generativelanguage.googleapis.com/v1beta"
+
+
+def test_system_and_agents_read_separate_provider_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MI_AI_SYSTEM_PROVIDER", "openai")
+    monkeypatch.setenv("MI_AI_SYSTEM_MODEL", "gpt-5-mini")
+    monkeypatch.setenv("MI_AI_SYSTEM_API_KEY", "system-openai-secret")
     monkeypatch.setenv("MI_AI_AGENTS_PROVIDER", "gemini")
     monkeypatch.setenv("MI_AI_AGENTS_MODEL", "gemini-3.6-flash")
-    monkeypatch.setenv("MI_AI_AGENTS_API_KEY", "agents-secret")
+    monkeypatch.setenv("MI_AI_AGENTS_API_KEY", "agents-gemini-secret")
 
     system = AIProviderConfig.from_env(role="system")
     agents = AIProviderConfig.from_env(role="agents")
 
     assert system.role == "system"
     assert agents.role == "agents"
-    assert system.provider == agents.provider == "gemini"
+    assert system.provider == "openai"
+    assert agents.provider == "gemini"
     assert system.api_key is not None
     assert agents.api_key is not None
-    assert system.api_key.get_secret_value() == "system-secret"
-    assert agents.api_key.get_secret_value() == "agents-secret"
+    assert system.api_key.get_secret_value() == "system-openai-secret"
+    assert agents.api_key.get_secret_value() == "agents-gemini-secret"
+
+
+def test_obsolete_legacy_provider_cannot_switch_system_away_from_gpt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MI_AI_SYSTEM_PROVIDER", raising=False)
+    monkeypatch.setenv("MI_AI_PROVIDER", "gemini")
+    system = AIProviderConfig.from_env(role="system")
+    assert system.provider == "openai"
 
 
 def test_agents_never_fall_back_to_system_or_legacy_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -171,9 +212,8 @@ def test_agents_never_fall_back_to_system_or_legacy_api_key(monkeypatch: pytest.
     assert agents.api_key is None
 
 
-def test_legacy_ai_names_are_system_only_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MI_AI_PROVIDER", "openai")
-    monkeypatch.setenv("MI_AI_MODEL", "gpt-5-mini")
+def test_legacy_api_key_is_system_only_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MI_AI_SYSTEM_API_KEY", raising=False)
     monkeypatch.setenv("MI_AI_API_KEY", "legacy-system-secret")
 
     system = AIProviderConfig.from_env(role="system")

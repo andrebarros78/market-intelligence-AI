@@ -6,36 +6,38 @@ O API ML consome IA por contrato estável através do `ProviderManager`. GitHub 
 
 O projeto possui dois papéis de IA independentes:
 
-1. `system`: inteligência responsável pelo próprio sistema API ML;
-2. `agents`: capacidade de IA utilizada pelos agentes/workers autorizados.
+1. `system`: inteligência responsável pelo próprio sistema API ML — OpenAI/GPT;
+2. `agents`: capacidade de IA utilizada pelos agentes/workers autorizados — Google/Gemini.
 
-Os dois papéis podem usar Gemini, mas não compartilham a mesma credencial.
+As credenciais são independentes e nunca são compartilhadas entre os dois papéis.
 
 ## Configuração atual
 
 ### Sistema
 
-- provider: `gemini`;
-- modelo padrão: `gemini-3.6-flash`;
-- base URL: `https://generativelanguage.googleapis.com/v1beta`;
-- secret: `MI_AI_SYSTEM_API_KEY`.
+- provider: `openai`;
+- modelo padrão: `gpt-5-mini`;
+- base URL: `https://api.openai.com/v1`;
+- secret: `MI_AI_SYSTEM_API_KEY`;
+- probe: `GET /v1/models` com `Authorization: Bearer`.
 
 ### Agentes
 
 - provider: `gemini`;
 - modelo padrão: `gemini-3.6-flash`;
 - base URL: `https://generativelanguage.googleapis.com/v1beta`;
-- secret: `MI_AI_AGENTS_API_KEY`.
+- secret: `MI_AI_AGENTS_API_KEY`;
+- probe: `GET /v1beta/models` com `x-goog-api-key`.
 
-A escolha do provedor e do modelo permanece configurável. OpenAI continua disponível como driver alternativo; não é dependência fixa da aplicação.
+A escolha continua protegida por uma camada de provider. A aplicação não depende estruturalmente de um único fornecedor; a separação atual é uma configuração de produto: GPT para o sistema e Gemini para os agentes.
 
 ## Variáveis previstas
 
 Configurações não secretas:
 
-- `MI_AI_SYSTEM_PROVIDER=gemini`
-- `MI_AI_SYSTEM_MODEL=gemini-3.6-flash`
-- `MI_AI_SYSTEM_BASE_URL=https://generativelanguage.googleapis.com/v1beta`
+- `MI_AI_SYSTEM_PROVIDER=openai`
+- `MI_AI_SYSTEM_MODEL=gpt-5-mini`
+- `MI_AI_SYSTEM_BASE_URL=https://api.openai.com/v1`
 - `MI_AI_AGENTS_PROVIDER=gemini`
 - `MI_AI_AGENTS_MODEL=gemini-3.6-flash`
 - `MI_AI_AGENTS_BASE_URL=https://generativelanguage.googleapis.com/v1beta`
@@ -45,54 +47,61 @@ Secrets:
 - `MI_AI_SYSTEM_API_KEY`
 - `MI_AI_AGENTS_API_KEY`
 
-Compatibilidade temporária: os antigos `MI_AI_PROVIDER`, `MI_AI_MODEL`, `MI_AI_BASE_URL` e `MI_AI_API_KEY` podem ser usados apenas como fallback do papel `system`. O papel `agents` nunca reutiliza a chave do sistema nem a chave legada.
+Compatibilidade temporária: `MI_AI_API_KEY`, `MI_AI_MODEL`, `MI_AI_BASE_URL`, `MI_AI_RETRIES`, `MI_AI_TIMEOUT_SECONDS` e `MI_AI_STORE` podem atuar somente como fallback do papel `system`. O antigo `MI_AI_PROVIDER` não pode trocar silenciosamente o sistema para outro provedor. O papel `agents` nunca herda chave ou configuração secreta do sistema.
 
 ## Implementação
 
 - `ProviderManager`: seleção de driver por configuração;
-- `GeminiDriver`: driver Gemini atual;
-- `OpenAIResponsesDriver`: alternativa preservada;
+- `OpenAIResponsesDriver`: driver atual do papel `system`;
+- `GeminiDriver`: driver atual do papel `agents`;
 - `AIProviderConfig.from_env(role="system"|"agents")`: configuração isolada por papel;
-- `scripts/probe_ai_provider.py --role system|agents`: prova de conectividade por papel.
+- `scripts/probe_ai_provider.py --role system|agents`: prova de conectividade por papel;
+- `market_intelligence.ai.status`: status não secreto de runtime.
 
-## Probe seguro Gemini
+## Probes seguros
 
-A prova inicial usa somente `GET /v1beta/models` com o header `x-goog-api-key`.
+### Sistema GPT
 
-Ela comprova:
+A prova usa somente `GET https://api.openai.com/v1/models`.
 
-1. aceitação da credencial;
-2. resposta do host oficial;
-3. disponibilidade do modelo configurado para a credencial.
+Ela comprova autenticação e disponibilidade do modelo configurado sem executar inferência e sem enviar dados de negócio.
 
-Ela não:
+### Agentes Gemini
 
-- executa inferência;
-- envia anúncios, pedidos, métricas ou qualquer dado de negócio;
-- imprime a credencial;
-- segue redirects;
-- aceita host arbitrário para o driver Gemini.
+A prova usa somente `GET https://generativelanguage.googleapis.com/v1beta/models`.
 
-O driver recusa base URL diferente de HTTPS + `generativelanguage.googleapis.com` + `/v1beta`, reduzindo risco de exfiltração de credenciais por configuração maliciosa.
+Ela comprova autenticação e disponibilidade do modelo configurado sem executar inferência e sem enviar dados de negócio.
 
-## Separação de credenciais
+## Segurança
 
-A chave do sistema é exclusiva do papel `system`.
+Os dois drivers:
 
-A chave dos agentes é exclusiva do papel `agents`.
+- recusam host arbitrário;
+- exigem HTTPS e base URL oficial;
+- não seguem redirects;
+- não imprimem credencial;
+- não enviam anúncios, pedidos, métricas ou dados pessoais no probe;
+- retornam somente resultado sanitizado.
 
-Se `MI_AI_AGENTS_API_KEY` estiver ausente, o papel de agentes falha fechado: ele não herda `MI_AI_SYSTEM_API_KEY` nem `MI_AI_API_KEY`.
+A chave dos agentes nunca herda `MI_AI_SYSTEM_API_KEY` nem `MI_AI_API_KEY`.
 
 ## GitHub Actions
 
-O conector disponível nesta sessão permite confirmar a existência do ambiente GitHub, mas não possui permissão para listar os nomes/valores dos Environment Secrets. O workflow autenticado que referencia Secrets também não deve ser criado por bypass de baixo nível se a camada de segurança do conector bloquear essa escrita.
+O Environment usado é `INTELIGENCI DE MERCADO API`.
+
+O workflow autenticado possui dois jobs independentes:
+
+- `system-gpt`;
+- `agents-gemini`.
+
+Isso permite provar e diagnosticar cada credencial sem misturar fornecedores ou privilégios.
 
 ## Critério para conexão real comprovada
 
 Cada papel só será marcado como conectado quando:
 
 1. seu Secret estiver configurado no GitHub;
-2. o probe correspondente rodar em ambiente autenticado;
+2. o probe correspondente rodar no Environment autenticado;
 3. `authenticated=true`;
 4. `model_available=true`;
 5. `inference_executed=false` durante o probe;
