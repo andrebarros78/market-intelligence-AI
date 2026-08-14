@@ -5,10 +5,12 @@ from market_intelligence.ai.providers import (
     GeminiDriver,
     OpenAIResponsesDriver,
     ProviderConfigurationError,
-    ProviderManager,
     SANDBOX_EXPECTED_OUTPUT,
     SANDBOX_PROMPT,
-    ZAIDriver,
+)
+from market_intelligence.ai.rate_limited_providers import (
+    ProviderManager,
+    RateLimitedZAIDriver as ZAIDriver,
 )
 from market_intelligence.ai.vault import (
     AI_VAULT_PROFILE_COUNT,
