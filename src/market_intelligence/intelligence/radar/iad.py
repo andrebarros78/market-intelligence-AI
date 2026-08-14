@@ -78,10 +78,18 @@ class IADCalibrationProfile(BaseModel):
 
     @model_validator(mode="after")
     def validate_approval(self) -> "IADCalibrationProfile":
-        if self.production_approved and self.source_type != "historical_validation":
-            raise ValueError("synthetic calibration cannot be production approved")
-        if self.sample_count and self.positive_count + self.negative_count != self.sample_count:
-            raise ValueError("calibration class counts must equal sample_count")
+        if self.min_components > len(self.weights):
+            raise ValueError("iad min_components cannot exceed weighted components")
+        if self.sample_count or self.positive_count or self.negative_count:
+            if self.positive_count + self.negative_count != self.sample_count:
+                raise ValueError("calibration class counts must equal sample_count")
+        if self.production_approved:
+            if self.source_type != "historical_validation":
+                raise ValueError("synthetic calibration cannot be production approved")
+            if self.sample_count <= 0 or self.positive_count <= 0 or self.negative_count <= 0:
+                raise ValueError(
+                    "production-approved iad calibration requires recorded positive and negative history"
+                )
         return self
 
 
@@ -161,8 +169,8 @@ class IADCalibrator:
             separation = statistics.fmean(positive_values) - statistics.fmean(negative_values)
             if separation > 0:
                 separations[component] = separation
-        if not separations:
-            raise ValueError("historical samples do not identify a positive iad signal")
+        if len(separations) < 2:
+            raise ValueError("iad calibration requires at least two positively separating components")
 
         total = sum(separations.values())
         weights = {name: value / total for name, value in separations.items()}
@@ -178,11 +186,9 @@ class IADCalibrator:
 
         labels = [label for label, _, _ in scored]
         unique = sorted({score for _, score, _ in scored})
-        candidates: list[float] = []
         if len(unique) == 1:
             raise ValueError("historical samples do not separate iad classes")
-        for left, right in zip(unique, unique[1:]):
-            candidates.append((left + right) / 2.0)
+        candidates = [(left + right) / 2.0 for left, right in zip(unique, unique[1:])]
 
         best: tuple[float, float, float, float] | None = None
         for threshold in candidates:
@@ -197,6 +203,7 @@ class IADCalibrator:
 
         positive_component_counts = [count for label, _, count in scored if label]
         min_components = max(2, min(positive_component_counts))
+        min_components = min(min_components, len(weights))
         return IADCalibrationProfile(
             version=version,
             source_type=source_type,
@@ -211,7 +218,6 @@ class IADCalibrator:
                 "balanced_accuracy": balanced,
                 "sensitivity": sensitivity,
                 "specificity": specificity,
-                "calibrator_version": 1.0,
             },
         )
 
