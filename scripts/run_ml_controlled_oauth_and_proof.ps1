@@ -23,9 +23,19 @@ $funnelStarted = $false
 try {
     if ($tailscale) {
         Write-Host "OAUTH_FUNNEL_PATH=$callbackPath"
-        & tailscale funnel --bg --https=443 --set-path=$callbackPath http://127.0.0.1:8771 | Out-Host
+        # Tailscale mounts the public path and proxies to the target path. Preserve the
+        # callback path explicitly on the local target so the OAuth handler receives the
+        # exact registered URI instead of '/'.
+        $localTarget = "http://127.0.0.1:8771$callbackPath"
+        & tailscale funnel --yes --bg --https=443 --set-path=$callbackPath $localTarget | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "Falha ao publicar callback OAuth temporario via Tailscale Funnel." }
         $funnelStarted = $true
+
+        $status = (& tailscale funnel status 2>&1 | Out-String)
+        Write-Host $status
+        if ($status -notmatch [regex]::Escape($callbackPath)) {
+            throw "Callback OAuth nao apareceu no status do Tailscale Funnel."
+        }
     }
     else {
         Write-Host "TAILSCALE_CLI_NOT_FOUND=True"
