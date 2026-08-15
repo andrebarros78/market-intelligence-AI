@@ -10,9 +10,16 @@ $WebhookPort = 8773
 $WebhookPath = "/v1/webhooks/mercadolivre"
 $WebhookStableTarget = "http://127.0.0.1:8772$WebhookPath"
 $WebhookIsolatedTarget = "http://127.0.0.1:$WebhookPort$WebhookPath"
+$RuntimeRoot = Join-Path $Repo "runtime\isolated-pr70-stack"
+$NativeDataDir = Join-Path $RuntimeRoot "pgdata"
+$NativeLog = Join-Path $RuntimeRoot "postgres.log"
 $WebhookProcess = $null
 $ContainerCreated = $false
+$NativePostgresStarted = $false
 $WebhookRouteSwitched = $false
+$PgCtl = $null
+$PgIsReady = $null
+$InitDb = $null
 
 function Assert-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -29,7 +36,22 @@ function Wait-TcpPort([int]$Port, [int]$Attempts = 30) {
     throw "Porta local $Port nao ficou pronta."
 }
 
-Assert-Command docker
+function Find-PostgresTool([string]$Tool) {
+    $cmd = Get-Command $Tool -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    $roots = @(
+        "C:\Program Files\PostgreSQL\17\bin",
+        "C:\Program Files\PostgreSQL\16\bin",
+        "C:\Program Files\PostgreSQL\15\bin"
+    )
+    foreach ($root in $roots) {
+        $candidate = Join-Path $root ("$Tool.exe")
+        if (Test-Path $candidate) { return $candidate }
+    }
+    return $null
+}
+
 Assert-Command python
 Assert-Command tailscale
 
@@ -41,41 +63,96 @@ $env:MI_READ_ONLY = "true"
 $env:MI_ALLOW_MARKETPLACE_WRITES = "false"
 $env:MI_CONTROLLED_WRITE_TEST_APPROVED = "pause-resume-1-item"
 
-# Never touch the existing dedicated PostgreSQL on 55432. This recovery stack is
-# intentionally parallel and disposable, so it does not require decrypting or
-# rotating any pre-existing DPAPI-protected database credential.
-$existing = (& docker ps -a --filter "name=^/$ContainerName$" --format "{{.ID}}" | Out-String).Trim()
-if ($existing) {
-    throw "Container isolado antigo encontrado ($ContainerName). Remova-o somente apos confirmar que nao ha prova em andamento."
+if (Test-NetConnection -ComputerName 127.0.0.1 -Port $DbPort -InformationLevel Quiet -WarningAction SilentlyContinue) {
+    throw "Porta isolada $DbPort ja esta em uso. Nenhum processo existente sera alterado automaticamente."
+}
+if (Test-NetConnection -ComputerName 127.0.0.1 -Port $WebhookPort -InformationLevel Quiet -WarningAction SilentlyContinue) {
+    throw "Porta isolada $WebhookPort ja esta em uso. Nenhum processo existente sera alterado automaticamente."
 }
 
+# This stack never touches the existing PostgreSQL on 55432 or webhook on 8772.
+# A fresh password lives only in this PowerShell process and the temporary isolated
+# database runtime, eliminating any need to decrypt or rotate pre-existing DPAPI data.
 $random = New-Object byte[] 32
 [System.Security.Cryptography.RandomNumberGenerator]::Fill($random)
 $dbPassword = [Convert]::ToBase64String($random).TrimEnd('=').Replace('+','A').Replace('/','B')
 $dbUser = "mi_pr70"
-$dbName = "market_intelligence_pr70"
+$dbName = "postgres"
 $encodedPassword = [Uri]::EscapeDataString($dbPassword)
 $env:MI_DATABASE_URL = "postgresql://$dbUser`:$encodedPassword@127.0.0.1:$DbPort/$dbName"
 $env:TEST_DATABASE_URL = $env:MI_DATABASE_URL
 
+$docker = Get-Command docker -ErrorAction SilentlyContinue
+$useDocker = $false
+if ($docker) {
+    & docker info *> $null
+    $useDocker = ($LASTEXITCODE -eq 0)
+}
+
 try {
     Write-Host "ISOLATED_POSTGRES_PORT=$DbPort"
-    & docker run -d --name $ContainerName `
-        -e "POSTGRES_USER=$dbUser" `
-        -e "POSTGRES_PASSWORD=$dbPassword" `
-        -e "POSTGRES_DB=$dbName" `
-        -p "127.0.0.1:$DbPort`:5432" `
-        postgres:17-alpine | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Falha ao criar PostgreSQL isolado." }
-    $ContainerCreated = $true
 
-    for ($i = 0; $i -lt 30; $i++) {
+    if ($useDocker) {
+        $existing = (& docker ps -a --filter "name=^/$ContainerName$" --format "{{.ID}}" | Out-String).Trim()
+        if ($existing) {
+            throw "Container isolado antigo encontrado ($ContainerName). Nenhum container preexistente sera removido automaticamente."
+        }
+
+        & docker run -d --name $ContainerName `
+            -e "POSTGRES_USER=$dbUser" `
+            -e "POSTGRES_PASSWORD=$dbPassword" `
+            -e "POSTGRES_DB=$dbName" `
+            -p "127.0.0.1:$DbPort`:5432" `
+            postgres:17-alpine | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Falha ao criar PostgreSQL isolado via Docker." }
+        $ContainerCreated = $true
+
+        for ($i = 0; $i -lt 30; $i++) {
+            & docker exec $ContainerName pg_isready -U $dbUser -d $dbName | Out-Null
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 1
+        }
         & docker exec $ContainerName pg_isready -U $dbUser -d $dbName | Out-Null
-        if ($LASTEXITCODE -eq 0) { break }
-        Start-Sleep -Seconds 1
+        if ($LASTEXITCODE -ne 0) { throw "PostgreSQL isolado Docker nao ficou pronto." }
+        Write-Host "ISOLATED_POSTGRES_ENGINE=Docker"
     }
-    & docker exec $ContainerName pg_isready -U $dbUser -d $dbName | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "PostgreSQL isolado nao ficou pronto." }
+    else {
+        $InitDb = Find-PostgresTool "initdb"
+        $PgCtl = Find-PostgresTool "pg_ctl"
+        $PgIsReady = Find-PostgresTool "pg_isready"
+        if (-not $InitDb -or -not $PgCtl -or -not $PgIsReady) {
+            throw "Docker indisponivel e ferramentas nativas PostgreSQL (initdb/pg_ctl/pg_isready) nao foram encontradas."
+        }
+        if (Test-Path $RuntimeRoot) {
+            throw "Runtime isolado antigo encontrado em $RuntimeRoot. Ele nao sera apagado automaticamente."
+        }
+
+        New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
+        $pwFile = Join-Path $RuntimeRoot "pgpw.tmp"
+        [IO.File]::WriteAllText($pwFile, $dbPassword, [Text.Encoding]::UTF8)
+        try {
+            & $InitDb -D $NativeDataDir -U $dbUser -A scram-sha-256 --pwfile=$pwFile --encoding=UTF8 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "initdb falhou para PostgreSQL isolado." }
+        }
+        finally {
+            Remove-Item $pwFile -Force -ErrorAction SilentlyContinue
+        }
+
+        Add-Content -Path (Join-Path $NativeDataDir "postgresql.conf") -Value "`nlisten_addresses = '127.0.0.1'`nport = $DbPort`n"
+        & $PgCtl -D $NativeDataDir -l $NativeLog start | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "pg_ctl nao iniciou PostgreSQL isolado." }
+        $NativePostgresStarted = $true
+
+        for ($i = 0; $i -lt 30; $i++) {
+            & $PgIsReady -h 127.0.0.1 -p $DbPort -U $dbUser -d $dbName | Out-Null
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 1
+        }
+        & $PgIsReady -h 127.0.0.1 -p $DbPort -U $dbUser -d $dbName | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "PostgreSQL isolado nativo nao ficou pronto." }
+        Write-Host "ISOLATED_POSTGRES_ENGINE=Native"
+    }
+
     Write-Host "DATABASE_CONNECTION=PORT_READY"
 
     python -m alembic upgrade head
@@ -88,6 +165,7 @@ try {
     $env:MI_ML_WEBHOOK_LOCAL_PORT = "$WebhookPort"
     $WebhookProcess = Start-Process -FilePath "python" -ArgumentList "scripts/run_mercadolivre_webhooks.py" -WorkingDirectory $Repo -PassThru -WindowStyle Hidden
     Wait-TcpPort -Port $WebhookPort
+    if ($WebhookProcess.HasExited) { throw "Webhook isolado encerrou durante bootstrap." }
     Write-Host "WEBHOOK_LOCAL_ISOLATED=PROVEN"
 
     & tailscale funnel --yes --bg --https=443 --set-path=$WebhookPath $WebhookIsolatedTarget | Out-Host
@@ -100,10 +178,10 @@ try {
     }
     Write-Host "WEBHOOK_PUBLIC_ROUTE_ISOLATED=PROVEN"
 
-    & "$PSScriptRoot\run_ml_controlled_oauth_and_proof.ps1"
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\run_ml_controlled_oauth_and_proof.ps1"
     $proofCode = $LASTEXITCODE
     Write-Host "ISOLATED_PR70_EXIT_CODE=$proofCode"
-    if ($proofCode -ne 0) { exit $proofCode }
+    if ($proofCode -ne 0) { throw "Prova PR70 encerrou com codigo $proofCode." }
 }
 finally {
     Remove-Item Env:MI_ML_WEBHOOK_LOCAL_PORT -ErrorAction SilentlyContinue
@@ -125,5 +203,14 @@ finally {
     if ($ContainerCreated) {
         & docker rm -f $ContainerName | Out-Null
         Write-Host "ISOLATED_POSTGRES_REMOVED=True"
+    }
+
+    if ($NativePostgresStarted -and $PgCtl -and (Test-Path $NativeDataDir)) {
+        & $PgCtl -D $NativeDataDir -m fast stop | Out-Null
+        Write-Host "ISOLATED_POSTGRES_STOPPED=True"
+    }
+    if (Test-Path $RuntimeRoot) {
+        Remove-Item $RuntimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path $RuntimeRoot)) { Write-Host "ISOLATED_POSTGRES_RUNTIME_REMOVED=True" }
     }
 }
