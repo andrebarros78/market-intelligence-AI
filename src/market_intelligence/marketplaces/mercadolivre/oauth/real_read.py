@@ -32,7 +32,7 @@ Clock = Callable[[], datetime]
 _AUTH_BASE = "https://auth.mercadolivre.com.br"
 _API_BASE = "https://api.mercadolibre.com"
 _TOKEN_PATH = "/oauth/token"
-_EXPECTED_SCHEMA = "0009_sovereign_intelligence_core"
+_EXPECTED_SCHEMA = "0010_sovereign_missions"
 
 
 class RealReadOAuthError(RuntimeError):
