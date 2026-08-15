@@ -13,6 +13,7 @@ from market_intelligence.marketplaces.canonical import EvidenceKind
 from market_intelligence.marketplaces.mercadolivre.http_client import MercadoLivreReadError, MercadoLivreReadOnlyAdapter, MercadoLivreReadResult
 from market_intelligence.marketplaces.mercadolivre.read_sanitize import safe_claims, safe_item, safe_items_search, safe_orders_search, safe_questions, safe_user
 from market_intelligence.marketplaces.mercadolivre.vault_token import load_access_token, refresh_access_token
+from market_intelligence.marketplaces.mercadolivre.webhook_surface_probe import MercadoLivreWebhookSurfaceProbe, SurfaceProbeReport
 from market_intelligence.persistence.postgresql import PostgresChannelEventRepository, PostgresEntityRepository, PostgresRawEventRepository, PostgresSnapshotRepository
 from market_intelligence.sensors.bus import UniversalSensorBus
 from market_intelligence.sensors.models import SensorEntity, SensorSignal, SensorSignalKind
@@ -30,6 +31,11 @@ class MercadoLivreCollectionReport:
     channel_events: int
     errors: tuple[str, ...]
     token_refreshed: bool
+    surface_events_considered: int = 0
+    surface_resources_fetched: int = 0
+    surface_events_new: int = 0
+    surface_events_skipped_privacy_or_unsupported: int = 0
+    surface_probe_failures: int = 0
 
 
 def _channel_event(result: MercadoLivreReadResult) -> ChannelEvent:
@@ -100,6 +106,14 @@ class MercadoLivreFullReadCollector:
 
     def _new_adapter(self, token: str | None = None) -> MercadoLivreReadOnlyAdapter:
         return MercadoLivreReadOnlyAdapter(access_token=SecretStr(token or load_access_token()), network_allowed=True)
+
+    async def _collect_surface_probe(self, adapter: MercadoLivreReadOnlyAdapter) -> SurfaceProbeReport:
+        return await MercadoLivreWebhookSurfaceProbe(
+            self.sessions,
+            adapter=adapter,
+            max_events_per_cycle=64,
+            bus=self.bus,
+        ).collect_once()
 
     async def collect_once(self) -> MercadoLivreCollectionReport:
         errors: list[str] = []
@@ -175,6 +189,16 @@ class MercadoLivreFullReadCollector:
             except MercadoLivreReadError as exc:
                 errors.append(f"claims:{exc.status_code or exc.code}")
 
+            surface_report = SurfaceProbeReport()
+            try:
+                surface_report = await self._collect_surface_probe(adapter)
+                channel_count += surface_report.channel_events
+            except Exception as exc:
+                # Surface discovery is additive. A probe failure must not stop primary
+                # polling, but remains observable instead of being silently swallowed.
+                errors.append(f"surface_probe:{type(exc).__name__}")
+                surface_report = SurfaceProbeReport(failures=1)
+
             return MercadoLivreCollectionReport(
                 success=True,
                 account_id=account_id,
@@ -186,6 +210,11 @@ class MercadoLivreFullReadCollector:
                 channel_events=channel_count,
                 errors=tuple(errors),
                 token_refreshed=token_refreshed,
+                surface_events_considered=surface_report.considered,
+                surface_resources_fetched=surface_report.fetched,
+                surface_events_new=surface_report.new_surface_events,
+                surface_events_skipped_privacy_or_unsupported=surface_report.skipped_privacy_or_unsupported,
+                surface_probe_failures=surface_report.failures,
             )
         finally:
             await adapter.aclose()

@@ -39,6 +39,8 @@ def test_real_read_oauth_first_gate_postgresql_with_mock_transport() -> None:
         access = f"access-{uuid4().hex}"
         refresh = f"refresh-{uuid4().hex}"
         authorization_code = f"code-{uuid4().hex}"
+        correlation_id = f"rr01-correlation-{uuid4().hex}"
+        replay_correlation_id = f"rr01-replay-{uuid4().hex}"
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/oauth/token":
@@ -106,7 +108,7 @@ def test_real_read_oauth_first_gate_postgresql_with_mock_transport() -> None:
             identity = await runtime.service.callback(
                 state=parsed_state,
                 code=authorization_code,
-                correlation_id="rr01-correlation",
+                correlation_id=correlation_id,
             )
             assert identity.account_id == account_id
             assert identity.site_id == "MLB"
@@ -117,7 +119,7 @@ def test_real_read_oauth_first_gate_postgresql_with_mock_transport() -> None:
                 await runtime.service.callback(
                     state=parsed_state,
                     code=authorization_code,
-                    correlation_id="rr01-replay",
+                    correlation_id=replay_correlation_id,
                 )
 
             async with sessions() as session:
@@ -136,7 +138,7 @@ def test_real_read_oauth_first_gate_postgresql_with_mock_transport() -> None:
                 channel = (
                     await session.execute(
                         select(ChannelEventRecord).where(
-                            ChannelEventRecord.correlation_id == "rr01-correlation"
+                            ChannelEventRecord.correlation_id == correlation_id
                         )
                     )
                 ).scalar_one()
