@@ -49,6 +49,9 @@ class SkillRegistry:
             raise ValueError("skill_already_registered")
         self._items[descriptor.skill_id] = descriptor
 
+    def all(self) -> tuple[SkillDescriptor, ...]:
+        return tuple(sorted(self._items.values(), key=lambda item: item.skill_id))
+
     def get(self, skill_id: str) -> SkillDescriptor:
         try:
             return self._items[skill_id]
