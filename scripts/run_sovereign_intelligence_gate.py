@@ -23,15 +23,25 @@ def _env() -> dict[str, str]:
 
 def run(label: str, command: list[str], *, timeout: int = 900) -> dict[str, object]:
     try:
-        completed = subprocess.run(command, cwd=ROOT, env=_env(), text=True, capture_output=True, timeout=timeout)
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=_env(),
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+        )
         return {
-            "label": label, "returncode": completed.returncode,
-            "stdout": completed.stdout[-OUTPUT_LIMIT:], "stderr": completed.stderr[-OUTPUT_LIMIT:],
+            "label": label,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout[-OUTPUT_LIMIT:],
+            "stderr": completed.stderr[-OUTPUT_LIMIT:],
             "passed": completed.returncode == 0,
         }
     except subprocess.TimeoutExpired as exc:
         return {
-            "label": label, "returncode": 124,
+            "label": label,
+            "returncode": 124,
             "stdout": (exc.stdout or "")[-OUTPUT_LIMIT:] if isinstance(exc.stdout, str) else "",
             "stderr": (exc.stderr or "")[-OUTPUT_LIMIT:] if isinstance(exc.stderr, str) else "",
             "passed": False,
@@ -46,19 +56,92 @@ def main() -> int:
 
     python = sys.executable
     checks = [
-        run("core_compile", [python, "-m", "compileall", "-q", "src/market_intelligence/intelligence/sovereign", "src/market_intelligence/persistence/sovereign_intelligence.py", "src/market_intelligence/persistence/sovereign_intelligence_models.py", "scripts/run_sovereign_intelligence_core.py"]),
-        run("core_unit", [python, "-m", "pytest", "-q", "tests/unit/test_sovereign_intelligence_core.py", "tests/unit/test_sovereign_intelligence_architecture.py", "tests/unit/test_sovereign_intelligence_unit.py"]),
-        run("core_stress_12000", [python, "-m", "pytest", "-q", "tests/unit/test_sovereign_intelligence_stress.py"]),
+        run(
+            "core_compile",
+            [
+                python,
+                "-m",
+                "compileall",
+                "-q",
+                "src/market_intelligence/intelligence/sovereign",
+                "src/market_intelligence/persistence/sovereign_intelligence.py",
+                "src/market_intelligence/persistence/sovereign_intelligence_models.py",
+                "src/market_intelligence/marketplaces/mercadolivre/surface_registry.py",
+                "src/market_intelligence/marketplaces/mercadolivre/webhook_surface_probe.py",
+                "src/market_intelligence/marketplaces/mercadolivre/full_read_collector.py",
+                "scripts/run_sovereign_intelligence_core.py",
+                "scripts/run_universal_sensor_collector.py",
+            ],
+        ),
+        run(
+            "core_unit",
+            [
+                python,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/unit/test_sovereign_intelligence_core.py",
+                "tests/unit/test_sovereign_intelligence_architecture.py",
+                "tests/unit/test_sovereign_intelligence_unit.py",
+            ],
+        ),
+        run(
+            "sondador_surface_unit",
+            [
+                python,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/unit/test_mercadolivre_webhook_surface_probe.py",
+                "tests/unit/test_mercadolivre_surface_registry.py",
+                "tests/unit/test_mercadolivre_unresolved_surface_probe.py",
+            ],
+        ),
+        run(
+            "core_stress_12000",
+            [python, "-m", "pytest", "-q", "tests/unit/test_sovereign_intelligence_stress.py"],
+        ),
     ]
 
     test_db = (os.getenv("TEST_DATABASE_URL") or "").strip()
     if test_db:
-        checks.extend([
-            run("legacy_sovereign_learning_gate", [python, "scripts/run_sovereign_learning_gate.py"], timeout=1200),
-            run("core_postgresql_persistence", [python, "-m", "pytest", "-q", "tests/integration/test_sovereign_intelligence_persistence.py"], timeout=600),
-            run("core_runtime_cycle", [python, "-c", "import asyncio, os; from market_intelligence.intelligence.sovereign.runtime import run_cycle; r=asyncio.run(run_cycle(os.environ['TEST_DATABASE_URL'], max_records=8)); assert r['core_health']=='PASS', r; assert r['marketplace_writes']==0, r; print('CORE_RUNTIME='+str(r))"], timeout=600),
-            run("core_persistence_tables", [python, "-c", "import os, psycopg; u=os.environ['TEST_DATABASE_URL'].replace('postgresql+psycopg://','postgresql://',1); c=psycopg.connect(u); cur=c.cursor(); tables=['sovereign_intelligence','exposure_map','cognitive_audits','sovereign_core_checkpoints']; counts={}; [(cur.execute('select count(*) from '+t), counts.__setitem__(t,cur.fetchone()[0])) for t in tables]; assert counts['sovereign_intelligence']>0 and counts['exposure_map']>0 and counts['cognitive_audits']>0 and counts['sovereign_core_checkpoints']>0,counts; cur.execute('select coalesce(sum(marketplace_writes),0) from sovereign_core_checkpoints'); writes=cur.fetchone()[0]; assert writes==0,writes; print('CORE_COUNTS='+str(counts)); print('MARKETPLACE_WRITES='+str(writes)); c.close()"]),
-        ])
+        checks.extend(
+            [
+                run(
+                    "legacy_sovereign_learning_gate",
+                    [python, "scripts/run_sovereign_learning_gate.py"],
+                    timeout=1200,
+                ),
+                run(
+                    "core_postgresql_persistence",
+                    [
+                        python,
+                        "-m",
+                        "pytest",
+                        "-q",
+                        "tests/integration/test_sovereign_intelligence_persistence.py",
+                    ],
+                    timeout=600,
+                ),
+                run(
+                    "core_runtime_cycle",
+                    [
+                        python,
+                        "-c",
+                        "import asyncio, os; from market_intelligence.intelligence.sovereign.runtime import run_cycle; r=asyncio.run(run_cycle(os.environ['TEST_DATABASE_URL'], max_records=8)); assert r['core_health']=='PASS', r; assert r['marketplace_writes']==0, r; print('CORE_RUNTIME='+str(r))",
+                    ],
+                    timeout=600,
+                ),
+                run(
+                    "core_persistence_tables",
+                    [
+                        python,
+                        "-c",
+                        "import os, psycopg; u=os.environ['TEST_DATABASE_URL'].replace('postgresql+psycopg://','postgresql://',1); c=psycopg.connect(u); cur=c.cursor(); tables=['sovereign_intelligence','exposure_map','cognitive_audits','sovereign_core_checkpoints']; counts={}; [(cur.execute('select count(*) from '+t), counts.__setitem__(t,cur.fetchone()[0])) for t in tables]; assert counts['sovereign_intelligence']>0 and counts['exposure_map']>0 and counts['cognitive_audits']>0 and counts['sovereign_core_checkpoints']>0,counts; cur.execute('select coalesce(sum(marketplace_writes),0) from sovereign_core_checkpoints'); writes=cur.fetchone()[0]; assert writes==0,writes; print('CORE_COUNTS='+str(counts)); print('MARKETPLACE_WRITES='+str(writes)); c.close()",
+                    ],
+                ),
+            ]
+        )
 
     failed = [str(item["label"]) for item in checks if not item["passed"]]
     if not test_db:
@@ -67,6 +150,7 @@ def main() -> int:
         "gate": "SOVEREIGN_INTELLIGENCE_COUNTERINTELLIGENCE_CORE",
         "core_version": "1.0.0",
         "radar_is_subsystem": True,
+        "sondador_surface_discovery": True,
         "read_only": True,
         "marketplace_writes": 0,
         "test_database_executed": bool(test_db),
