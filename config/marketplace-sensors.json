@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "runtime_scope": "universal_multimarketplace",
+  "marketplaces": {
+    "mercadolivre": {"state": "connected_read_only", "continuous_sensor": true},
+    "shopee": {"state": "blocked_external_auth", "continuous_sensor": false},
+    "amazon": {"state": "ready_for_credentials", "continuous_sensor": false},
+    "tiktok_shop": {"state": "ready_for_credentials", "continuous_sensor": false},
+    "shein": {"state": "ready_for_credentials", "continuous_sensor": false},
+    "magalu": {"state": "planned", "continuous_sensor": false},
+    "aliexpress": {"state": "planned", "continuous_sensor": false},
+    "ebay": {"state": "planned", "continuous_sensor": false},
+    "walmart": {"state": "planned", "continuous_sensor": false}
+  },
+  "permanent_read_only": true,
+  "permanent_marketplace_writes": false
+}

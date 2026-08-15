@@ -22,7 +22,7 @@ from market_intelligence.skills.evidence_feed import ValidatedMarketplaceEvidenc
 from market_intelligence.skills.executor import execute_validated_evidence
 from market_intelligence.skills.registry import SkillLicenseStatus
 
-EXPECTED_ALEMBIC_HEAD = "0007_ai_inference_audit"
+EXPECTED_ALEMBIC_HEAD = "0008_sovereign_learning"
 _VALIDATED_SOURCE = "official_api_get_plus_webhook"
 _NUMERIC_METRICS = ("visits", "sold_quantity", "available_quantity", "price")
 

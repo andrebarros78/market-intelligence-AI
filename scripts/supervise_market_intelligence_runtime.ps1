@@ -7,6 +7,7 @@ $SecretPath = Join-Path $ConfigRoot "database-url.dpapi"
 $SupervisorRoot = Join-Path $RuntimeRoot "supervisor"
 $SupervisorStatus = Join-Path $SupervisorRoot "status.json"
 $RadarStatus = Join-Path $RuntimeRoot "radar-unit\status.json"
+$SensorStatus = Join-Path $RuntimeRoot "sensors\status.json"
 $Python = "C:\Python313\pythonw.exe"
 $Postgres = "C:\Program Files\PostgreSQL\17\bin\postgres.exe"
 $PostgresData = "C:\Users\andre\AppData\Local\MarketIntelligence\PostgreSQL17\data"
@@ -111,6 +112,28 @@ function Start-RadarUnit([string]$DatabaseUrl) {
     finally { Clear-DatabaseEnvironment }
 }
 
+function Get-SensorCollectorProcess {
+    return Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like "*run_universal_sensor_collector.py*" } |
+        Select-Object -First 1
+}
+
+function Start-SensorCollector([string]$DatabaseUrl) {
+    if (Get-SensorCollectorProcess) { return }
+    Set-ChildEnvironment $DatabaseUrl
+    try {
+        $sensorScript = Join-Path $Repo "scripts\run_universal_sensor_collector.py"
+        $sensorArgs = ('"{0}" --status-path "{1}" --interval-seconds 300 --max-items-per-cycle 20' -f $sensorScript, $SensorStatus)
+        Start-Process -FilePath $Python `
+            -ArgumentList $sensorArgs `
+            -WorkingDirectory $Repo `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $SupervisorRoot "sensor.stdout.log") `
+            -RedirectStandardError (Join-Path $SupervisorRoot "sensor.stderr.log") | Out-Null
+    }
+    finally { Clear-DatabaseEnvironment }
+}
+
 function Write-SupervisorStatus([hashtable]$Status) {
     $Status.timestamp = [DateTimeOffset]::UtcNow.ToString("o")
     $Status.MI_READ_ONLY = $true
@@ -132,16 +155,20 @@ while ($true) {
         try {
             Start-PermanentWebhook $db
             Start-RadarUnit $db
+            Start-SensorCollector $db
         }
         finally { $db = $null; Clear-DatabaseEnvironment }
 
         $radarProcess = Get-RadarUnitProcess
+        $sensorProcess = Get-SensorCollectorProcess
         Write-SupervisorStatus @{
             supervisor = "ACTIVE"
             postgres_55432 = (Test-ListeningPort 55432)
             webhook_8772 = (Test-WebhookHealth)
             radar_unit_process = ($null -ne $radarProcess)
             radar_unit_pid = if ($radarProcess) { [int]$radarProcess.ProcessId } else { $null }
+            sensor_collector_process = ($null -ne $sensorProcess)
+            sensor_collector_pid = if ($sensorProcess) { [int]$sensorProcess.ProcessId } else { $null }
             new_marketplace_write_executed = $false
         }
     }
@@ -151,6 +178,7 @@ while ($true) {
             postgres_55432 = (Test-ListeningPort 55432)
             webhook_8772 = (Test-WebhookHealth)
             radar_unit_process = ($null -ne (Get-RadarUnitProcess))
+            sensor_collector_process = ($null -ne (Get-SensorCollectorProcess))
             error = $_.Exception.GetType().Name
             new_marketplace_write_executed = $false
         }

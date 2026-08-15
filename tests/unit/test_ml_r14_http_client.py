@@ -184,3 +184,34 @@ async def test_absolute_or_scheme_relative_resource_paths_are_rejected_before_tr
             assert caught.value.code == "mercadolivre_invalid_resource_path"
     finally:
         await adapter.aclose()
+
+@pytest.mark.asyncio
+async def test_collection_read_helpers_are_get_only_and_bound_limits() -> None:
+    seen: list[tuple[str, str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        query = request.url.query.decode() if isinstance(request.url.query, bytes) else str(request.url.query)
+        seen.append((request.method, request.url.path, query))
+        return httpx.Response(200, json={"ok": True})
+
+    adapter = MercadoLivreReadOnlyAdapter(
+        access_token=TOKEN,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        await adapter.read_user_items("123", status="active", limit=999)
+        await adapter.read_orders_search("123", limit=999)
+        await adapter.read_questions_search("123", limit=999)
+        await adapter.read_open_claims(limit=999)
+    finally:
+        await adapter.aclose()
+
+    assert all(method == "GET" for method, _, _ in seen)
+    assert seen[0][1] == "/users/123/items/search"
+    assert "status=active" in seen[0][2] and "limit=100" in seen[0][2]
+    assert seen[1][1] == "/orders/search"
+    assert "seller=123" in seen[1][2] and "limit=50" in seen[1][2]
+    assert seen[2][1] == "/questions/search"
+    assert "seller_id=123" in seen[2][2] and "limit=50" in seen[2][2]
+    assert seen[3][1] == "/post-purchase/v1/claims/search"
+    assert "status=opened" in seen[3][2] and "limit=30" in seen[3][2]
