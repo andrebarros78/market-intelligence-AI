@@ -16,6 +16,7 @@ $NativeLog = Join-Path $RuntimeRoot "postgres.log"
 $WebhookProcess = $null
 $ContainerCreated = $false
 $NativePostgresStarted = $false
+$NativePostgresProcess = $null
 $WebhookRouteSwitched = $false
 $PgCtl = $null
 $PgIsReady = $null
@@ -74,7 +75,7 @@ if (Test-NetConnection -ComputerName 127.0.0.1 -Port $WebhookPort -InformationLe
 # A fresh password lives only in this PowerShell process and the temporary isolated
 # database runtime, eliminating any need to decrypt or rotate pre-existing DPAPI data.
 $random = New-Object byte[] 32
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($random)
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); try { $rng.GetBytes($random) } finally { $rng.Dispose() }
 $dbPassword = [Convert]::ToBase64String($random).TrimEnd('=').Replace('+','A').Replace('/','B')
 $dbUser = "mi_pr70"
 $dbName = "postgres"
@@ -139,8 +140,12 @@ try {
         }
 
         Add-Content -Path (Join-Path $NativeDataDir "postgresql.conf") -Value "`nlisten_addresses = '127.0.0.1'`nport = $DbPort`n"
-        & $PgCtl -D $NativeDataDir -l $NativeLog start | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "pg_ctl nao iniciou PostgreSQL isolado." }
+        $PostgresExe = Join-Path (Split-Path $PgCtl -Parent) "postgres.exe"
+        if (-not (Test-Path $PostgresExe)) { throw "postgres.exe nao encontrado ao lado de pg_ctl." }
+        $pgStdout = Join-Path $RuntimeRoot "postgres.stdout.log"
+        $pgStderr = Join-Path $RuntimeRoot "postgres.stderr.log"
+        $pgArgs = @("-D", ('"{0}"' -f $NativeDataDir))
+        $NativePostgresProcess = Start-Process -FilePath $PostgresExe -ArgumentList $pgArgs -WindowStyle Hidden -PassThru -RedirectStandardOutput $pgStdout -RedirectStandardError $pgStderr
         $NativePostgresStarted = $true
 
         for ($i = 0; $i -lt 30; $i++) {
@@ -204,9 +209,10 @@ finally {
         & docker rm -f $ContainerName | Out-Null
         Write-Host "ISOLATED_POSTGRES_REMOVED=True"
     }
-
-    if ($NativePostgresStarted -and $PgCtl -and (Test-Path $NativeDataDir)) {
-        & $PgCtl -D $NativeDataDir -m fast stop | Out-Null
+    if ($NativePostgresStarted -and $NativePostgresProcess) {
+        if (-not $NativePostgresProcess.HasExited) {
+            & taskkill /PID $NativePostgresProcess.Id /T /F | Out-Null
+        }
         Write-Host "ISOLATED_POSTGRES_STOPPED=True"
     }
     if (Test-Path $RuntimeRoot) {
