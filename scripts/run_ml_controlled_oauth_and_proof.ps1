@@ -3,9 +3,13 @@ $ErrorActionPreference = "Stop"
 $Repo = Split-Path -Parent $PSScriptRoot
 Set-Location $Repo
 
-if (-not $env:MI_ML_APP_ID) { $env:MI_ML_APP_ID = "3438551912770538" }
-if ($env:MI_ML_APP_ID -ne "3438551912770538") { throw "MI_ML_APP_ID incorreto." }
-if (-not $env:MI_ML_REDIRECT_URI) { throw "MI_ML_REDIRECT_URI ausente na sessao." }
+$ExpectedAppId = "3438551912770538"
+$ExpectedRedirectUri = "https://vendas.tail7ad8aa.ts.net/v1/oauth/mercadolivre/callback"
+
+if (-not $env:MI_ML_APP_ID) { $env:MI_ML_APP_ID = $ExpectedAppId }
+if ($env:MI_ML_APP_ID -ne $ExpectedAppId) { throw "MI_ML_APP_ID incorreto." }
+if (-not $env:MI_ML_REDIRECT_URI) { $env:MI_ML_REDIRECT_URI = $ExpectedRedirectUri }
+if ($env:MI_ML_REDIRECT_URI -ne $ExpectedRedirectUri) { throw "MI_ML_REDIRECT_URI diverge do callback registrado aprovado." }
 if (-not $env:MI_DATABASE_URL) { throw "MI_DATABASE_URL ausente na sessao." }
 
 $env:PYTHONPATH = "$Repo\src;$Repo"
