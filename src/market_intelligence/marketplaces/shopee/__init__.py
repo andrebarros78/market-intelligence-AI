@@ -1,0 +1,2 @@
+from market_intelligence.marketplaces.shopee.read_only import ShopeeAuthorizationState,ShopeeReadOnlyAdapter
+__all__=["ShopeeAuthorizationState","ShopeeReadOnlyAdapter"]
