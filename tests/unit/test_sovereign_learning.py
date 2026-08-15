@@ -127,3 +127,18 @@ def test_promotion_requires_all_three_gates():
 def test_dedupe_key_is_deterministic():
     engine = SovereignLearningEngine()
     assert evaluate(engine).dedupe_key == evaluate(engine).dedupe_key
+
+
+def test_episode_identity_is_stable_while_state_evolves():
+    engine = SovereignLearningEngine()
+    early = evaluate(
+        engine,
+        investigation=confirmed_investigation(status_after="monitoring", observation_count=1),
+    )
+    confirmed = evaluate(
+        engine,
+        investigation=confirmed_investigation(status_after="confirmed", observation_count=3),
+    )
+    assert early.state is LearningState.UNDER_INVESTIGATION
+    assert confirmed.state is LearningState.VALIDATED_FACT
+    assert early.dedupe_key == confirmed.dedupe_key
