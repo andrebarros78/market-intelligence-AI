@@ -52,6 +52,41 @@ Os órgãos não mantêm verdades independentes. Todos trabalham sobre:
 - `cognitive_audits`;
 - checkpoints soberanos.
 
+## Sondador e superfícies de informação
+O Sondador não é um scanner de vulnerabilidades. Ele descobre superfícies legitimamente observáveis e relações entre sinais.
+
+O Mercado Livre possui um registry declarativo de superfícies com modos de captura independentes:
+- `POLL_SAFE`;
+- `WEBHOOK_GET_SAFE`;
+- `DEDICATED_PRIVACY_READER`;
+- `WEBHOOK_METADATA_ONLY`;
+- `DERIVED`;
+- `DEPRECATED`.
+
+Tópicos com risco de PII, como mensagens, pedidos, pagamentos, reclamações e leads, nunca são seguidos pelo coletor genérico. Eles exigem leitor dedicado com minimização de dados.
+
+Para tópicos explicitamente classificados como seguros, uma notificação pode disparar somente um `GET` oficial em formato previamente validado. O resultado genérico não é armazenado como conteúdo: são mantidos apenas fingerprint, caminhos de schema e nomes de campos.
+
+Tópicos novos, desconhecidos ou recursos cuja forma mudou são registrados como descoberta de metadados. O Sondador não segue automaticamente a URL/recurso novo. Isso permite descobrir mudanças sem ampliar silenciosamente a autoridade do sistema.
+
+## Laboratório de observação do navegador
+O laboratório de observação aceita HAR obtido de uma sessão autorizada da própria operação e realiza análise **offline**.
+
+Ele:
+- não executa requisições de rede;
+- aceita somente hosts HTTPS do ecossistema Mercado Livre/MercadoLibre previstos pela política;
+- transforma identificadores de caminhos em templates;
+- não persiste valores de query string;
+- não persiste valores de headers;
+- registra presença de header de credencial apenas como booleano;
+- não persiste valores de bodies JSON ou formulários;
+- conserva somente estrutura/schema, nomes de campos não secretos, método, host, template de caminho, status e metadados operacionais;
+- limita tamanho de bodies e quantidade de entradas processadas.
+
+Esses sinais alimentam a Contrainteligência para responder quais superfícies o navegador utiliza e quais classes de informação são transmitidas ou recebidas, sem capturar credenciais ou conteúdo pessoal como base de inteligência.
+
+O laboratório não autoriza bypass de login, CAPTCHA/MFA, evasão de controles de acesso, leitura de contas de terceiros ou exploração de vulnerabilidades.
+
 ## Contrainteligência
 Contrainteligência é defensiva e analítica. Ela registra:
 `dado/evento -> o que a plataforma observa -> inferências possíveis -> risco -> mitigação -> evidência`.
@@ -70,6 +105,8 @@ A migração `0009_sovereign_intelligence_core` adiciona:
 ## Runtime
 `scripts/run_sovereign_intelligence_core.py` executa o ciclo cognitivo continuamente e é supervisionado junto ao Radar, sensores, PostgreSQL e webhook.
 
+O runtime cognitivo consome snapshots, telemetria de canais, descobertas do Sondador e metadados seguros do laboratório de observação. Todos passam pelo mesmo contrato de evidência e pela MCL-P+.
+
 O status do Núcleo deve continuar separado do painel. O painel somente consome sua inteligência.
 
 ## Gates
@@ -77,6 +114,7 @@ A missão só pode ser considerada provada quando:
 - compilação PASS;
 - testes unitários PASS;
 - teste de arquitetura PASS;
+- testes de privacidade e superfície do Sondador PASS;
 - stress 12.000 cenários PASS;
 - gate MCL-P+ legado continua PASS;
 - Alembic upgrade/check/rollback/reupgrade PASS;
