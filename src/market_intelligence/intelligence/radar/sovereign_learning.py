@@ -82,7 +82,7 @@ class SovereignLearningEngine:
     It only produces guarded learning decisions and promotion candidates.
     """
 
-    version = "sovereign-learning@1.0.0"
+    version = "sovereign-learning@1.0.1"
 
     def evaluate(
         self,
@@ -146,12 +146,12 @@ class SovereignLearningEngine:
             targets = (FeedbackTarget.KNOWLEDGE_MEMORY,)
             reason = "insufficient_evidence_for_promotion_candidate"
 
+        # Episode identity must remain stable while knowledge state evolves.
         key_payload = {
             "marketplace": marketplace.strip().lower(),
             "entity_type": entity_type,
             "entity_id": entity_id,
             "finding_hash": finding_hash,
-            "state": state.value,
         }
         return SovereignLearningDecision(
             dedupe_key=_dedupe_key(key_payload),
