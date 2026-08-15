@@ -24,8 +24,9 @@ def test_r119_feedback_is_durable_idempotent_ordered_and_calibration_safe() -> N
         database = create_database_engine(url)
         sessions = create_session_factory(database)
         now = datetime.now(UTC)
-        entity_id = f"R119-{uuid4().hex}"
-        detector_version = "r119-test-detector@1.0.0"
+        suffix = uuid4().hex
+        entity_id = f"R119-{suffix}"
+        detector_version = f"r119-test-detector@1.0.0-{suffix}"
         alert = Alert(
             entity=EntityRef(
                 marketplace="mercadolivre",

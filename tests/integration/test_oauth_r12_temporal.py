@@ -58,6 +58,7 @@ def test_r12_temporal_refresh_is_durable_idempotent_and_history_contains_no_secr
         sessions = create_session_factory(database)
         now = datetime.now(UTC); suffix = uuid4().hex
         account_id = f"oauth-temporal-{suffix}"; client = KnownSecretSyntheticClient(now)
+        request_key = f"{REQUEST_KEY}-{suffix}"
         runtime = build_synthetic_oauth_runtime(sessions=sessions, encryption_key=b"r" * 32,
                                                 clock=lambda: now, client=client)  # type: ignore[arg-type]
         try:
@@ -72,10 +73,10 @@ def test_r12_temporal_refresh_is_durable_idempotent_and_history_contains_no_secr
                     engine = TemporalWorkflowEngine(env.client, task_queue=task_queue)
                     payload = {"account_id": account_id, "correlation_id": f"corr-{suffix}"}
                     first_id = await engine.start(WORKFLOW_OAUTH_REFRESH, payload,
-                                                  idempotency_key=REQUEST_KEY)
+                                                  idempotency_key=request_key)
                     second_id = await engine.start(WORKFLOW_OAUTH_REFRESH, payload,
-                                                   idempotency_key=REQUEST_KEY)
-                    assert first_id == second_id and REQUEST_KEY not in first_id
+                                                   idempotency_key=request_key)
+                    assert first_id == second_id and request_key not in first_id
                     handle = env.client.get_workflow_handle(first_id, result_type=dict[str, int])
                     assert await handle.result() == {"credential_version": 2}
                     assert client.refresh_calls == 1
@@ -83,7 +84,7 @@ def test_r12_temporal_refresh_is_durable_idempotent_and_history_contains_no_secr
                     history = await handle.fetch_history()
                     raw_history = b"".join(event.SerializeToString() for event in history.events)
                     for value in [plan.state, CALLBACK_CODE, ACCESS_V1, REFRESH_V1,
-                                  ACCESS_V2, REFRESH_V2, REQUEST_KEY]:
+                                  ACCESS_V2, REFRESH_V2, request_key]:
                         assert value.encode("utf-8") not in raw_history
                     await Replayer(workflows=[SyntheticOAuthRefreshWorkflow]).replay_workflow(history)
 

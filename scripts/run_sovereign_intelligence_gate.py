@@ -132,7 +132,7 @@ def main() -> int:
                     [
                         python,
                         "-c",
-                        "import asyncio, os; from market_intelligence.intelligence.sovereign.runtime import run_cycle; r=asyncio.run(run_cycle(os.environ['TEST_DATABASE_URL'], max_records=8)); assert r['core_health']=='PASS', r; assert r['investigation_failures']==0, r; assert r['cognitive_audit_failures']==0, r; assert r['marketplace_writes']==0, r; print('CORE_RUNTIME='+str(r))",
+                        "import asyncio, os, sys; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) if sys.platform == 'win32' else None; from market_intelligence.intelligence.sovereign.runtime import run_cycle; r=asyncio.run(run_cycle(os.environ['TEST_DATABASE_URL'], max_records=8)); assert r['core_health']=='PASS', r; assert r['investigation_failures']==0, r; assert r['cognitive_audit_failures']==0, r; assert r['marketplace_writes']==0, r; print('CORE_RUNTIME='+str(r))",
                     ],
                     timeout=600,
                 ),

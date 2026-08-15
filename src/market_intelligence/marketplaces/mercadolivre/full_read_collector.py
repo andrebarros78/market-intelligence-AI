@@ -107,6 +107,14 @@ class MercadoLivreFullReadCollector:
     def _new_adapter(self, token: str | None = None) -> MercadoLivreReadOnlyAdapter:
         return MercadoLivreReadOnlyAdapter(access_token=SecretStr(token or load_access_token()), network_allowed=True)
 
+    async def _collect_surface_probe(self, adapter: MercadoLivreReadOnlyAdapter) -> SurfaceProbeReport:
+        return await MercadoLivreWebhookSurfaceProbe(
+            self.sessions,
+            adapter=adapter,
+            max_events_per_cycle=64,
+            bus=self.bus,
+        ).collect_once()
+
     async def collect_once(self) -> MercadoLivreCollectionReport:
         errors: list[str] = []
         token_refreshed = False
@@ -183,12 +191,7 @@ class MercadoLivreFullReadCollector:
 
             surface_report = SurfaceProbeReport()
             try:
-                surface_report = await MercadoLivreWebhookSurfaceProbe(
-                    self.sessions,
-                    adapter=adapter,
-                    max_events_per_cycle=64,
-                    bus=self.bus,
-                ).collect_once()
+                surface_report = await self._collect_surface_probe(adapter)
                 channel_count += surface_report.channel_events
             except Exception as exc:
                 # Surface discovery is additive. A probe failure must not stop primary

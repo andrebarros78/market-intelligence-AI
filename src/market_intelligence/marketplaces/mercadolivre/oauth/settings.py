@@ -14,7 +14,7 @@ class OAuthRuntimeSettings:
     refresh_claim_ttl_seconds: int = 120
     refresh_dedup_seconds: int = 30
     synthetic_refresh_enabled: bool = True
-    expected_schema_revision: str = "0008_sovereign_learning"
+    expected_schema_revision: str = "0009_sovereign_intelligence_core"
 
     def validate_for_r11(self) -> None:
         if not self.synthetic_only:

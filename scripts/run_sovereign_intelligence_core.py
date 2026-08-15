@@ -18,6 +18,8 @@ def main() -> None:
     database_url = os.getenv("MI_DATABASE_URL")
     if not database_url:
         raise SystemExit("MI_DATABASE_URL is required")
+    if os.name == "nt":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(
         run_forever(
             database_url,

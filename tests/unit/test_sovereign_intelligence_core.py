@@ -56,6 +56,9 @@ def test_core_quarantines_unproven_causal_claim() -> None:
     )
     assert report.validation.state is KnowledgeState.QUARANTINED
     assert report.learning["state"] == "quarantined"
+    assert report.prediction.confidence <= 0.20
+    assert report.prediction.state is KnowledgeState.QUARANTINED
+    assert report.audit.passed is True
     assert report.action_intent.direct_marketplace_write is False
 
 
@@ -77,6 +80,8 @@ def test_unconfirmed_signal_stays_below_validated() -> None:
     report = SovereignIntelligenceCore().process(signal(confidence=0.99))
     assert report.validation.state is not KnowledgeState.VALIDATED
     assert report.learning["state"] == "under_investigation"
+    assert report.intelligence.confidence == 0.95
+    assert report.audit.passed is True
     assert report.action_intent.autonomy_level is AutonomyLevel.RECOMMEND
 
 

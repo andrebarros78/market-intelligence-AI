@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from market_intelligence.marketplaces.mercadolivre.full_read_collector import MercadoLivreFullReadCollector
+from market_intelligence.marketplaces.mercadolivre.full_read_collector import MercadoLivreFullReadCollector, SurfaceProbeReport
 
 
 class _FakeReadOnlyAdapter:
@@ -47,6 +47,7 @@ async def test_full_read_collector_sanitizes_questions_without_name_shadowing() 
     adapter = _FakeReadOnlyAdapter()
     collector._new_adapter = lambda token=None: adapter
     collector._persist_result = AsyncMock(return_value=(False, False))
+    collector._collect_surface_probe = AsyncMock(return_value=SurfaceProbeReport())
 
     report = await collector.collect_once()
 

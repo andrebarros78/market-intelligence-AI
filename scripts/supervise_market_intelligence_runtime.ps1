@@ -9,7 +9,7 @@ $SupervisorStatus = Join-Path $SupervisorRoot "status.json"
 $RadarStatus = Join-Path $RuntimeRoot "radar-unit\status.json"
 $SensorStatus = Join-Path $RuntimeRoot "sensors\status.json"
 $CoreStatus = Join-Path $RuntimeRoot "sovereign-core\status.json"
-$Python = "C:\Python313\pythonw.exe"
+$Python = Join-Path $Repo ".venv-r113\Scripts\pythonw.exe"
 $Postgres = "C:\Program Files\PostgreSQL\17\bin\postgres.exe"
 $PostgresData = "C:\Users\andre\AppData\Local\MarketIntelligence\PostgreSQL17\data"
 $PostgresLogRoot = "C:\Users\andre\AppData\Local\MarketIntelligence\PostgreSQL17"
@@ -42,10 +42,12 @@ function Set-ChildEnvironment([string]$DatabaseUrl) {
     $env:MI_ML_APP_ID = $AppId
     $env:MI_READ_ONLY = "true"
     $env:MI_ALLOW_MARKETPLACE_WRITES = "false"
+    $env:MARKETPLACE_WRITES = "0"
 }
 
 function Clear-DatabaseEnvironment {
     Remove-Item Env:MI_DATABASE_URL -ErrorAction SilentlyContinue
+    Remove-Item Env:MARKETPLACE_WRITES -ErrorAction SilentlyContinue
 }
 
 function Start-PermanentPostgres {
@@ -92,8 +94,9 @@ function Start-PermanentWebhook([string]$DatabaseUrl) {
 }
 
 function Get-RadarUnitProcess {
+    $expected = Join-Path $Repo "scripts\run_radar_sovereign_unit.py"
     return Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*run_radar_sovereign_unit.py*" } |
+        Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($expected, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 } |
         Select-Object -First 1
 }
 
@@ -114,8 +117,9 @@ function Start-RadarUnit([string]$DatabaseUrl) {
 }
 
 function Get-SensorCollectorProcess {
+    $expected = Join-Path $Repo "scripts\run_universal_sensor_collector.py"
     return Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*run_universal_sensor_collector.py*" } |
+        Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($expected, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 } |
         Select-Object -First 1
 }
 
@@ -136,8 +140,9 @@ function Start-SensorCollector([string]$DatabaseUrl) {
 }
 
 function Get-SovereignCoreProcess {
+    $expected = Join-Path $Repo "scripts\run_sovereign_intelligence_core.py"
     return Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*run_sovereign_intelligence_core.py*" } |
+        Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($expected, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 } |
         Select-Object -First 1
 }
 
@@ -161,6 +166,7 @@ function Write-SupervisorStatus([hashtable]$Status) {
     $Status.timestamp = [DateTimeOffset]::UtcNow.ToString("o")
     $Status.MI_READ_ONLY = $true
     $Status.MI_ALLOW_MARKETPLACE_WRITES = $false
+    $Status.MARKETPLACE_WRITES = 0
     $Status.operational_horizon_years = 5000
     $Status.lifecycle = "always_on"
     $Status.unit_classification = "sovereign_universal_unit"

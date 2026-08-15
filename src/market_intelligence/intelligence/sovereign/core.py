@@ -140,6 +140,8 @@ class SovereignIntelligenceCore:
         )
 
         validation = self._reconcile_validation(validation, learning_decision.state)
+        if validation.state is not KnowledgeState.VALIDATED and intelligence.confidence > 0.95:
+            intelligence = intelligence.model_copy(update={"confidence": 0.95})
         prediction = self.predictor.predict(signal, correlation, validation)
         action_intent = self.decision.decide(signal, intelligence, validation, prediction)
         audit = self.auditor.audit(validation, intelligence, prediction, action_intent)

@@ -51,8 +51,9 @@ def test_r119_http_never_promotes_and_trusted_repository_path_can_qualify() -> N
         database = create_database_engine(url)
         sessions = create_session_factory(database)
         now = datetime.now(UTC)
-        entity_id = f"R119-HTTP-{uuid4().hex}"
-        detector_version = "r119-http-detector@1.0.0"
+        suffix = uuid4().hex
+        entity_id = f"R119-HTTP-{suffix}"
+        detector_version = f"r119-http-detector@1.0.0-{suffix}"
         try:
             alert = Alert(
                 entity=EntityRef(

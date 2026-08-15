@@ -410,6 +410,10 @@ class SovereignPredictor:
             statement = f"Se o padrao validado de {signal.kind} reaparecer, procurar os mesmos sinais antecedentes e posteriores."
             confidence = min(0.95, validation.confidence)
             state = KnowledgeState.TESTED
+        elif validation.state in {KnowledgeState.REJECTED, KnowledgeState.QUARANTINED}:
+            statement = f"Conhecimento {validation.state.value} para {signal.kind}; nao projetar consequencia ate revalidacao."
+            confidence = min(0.20, validation.confidence)
+            state = validation.state
         elif correlation.related_signal_ids:
             statement = f"O proximo evento relacionado a {signal.kind} pode repetir o regime observado; confirmar antes de agir."
             confidence = min(0.75, max(0.35, correlation.strength))
