@@ -10,7 +10,22 @@ if (-not $env:MI_ML_APP_ID) { $env:MI_ML_APP_ID = $ExpectedAppId }
 if ($env:MI_ML_APP_ID -ne $ExpectedAppId) { throw "MI_ML_APP_ID incorreto." }
 if (-not $env:MI_ML_REDIRECT_URI) { $env:MI_ML_REDIRECT_URI = $ExpectedRedirectUri }
 if ($env:MI_ML_REDIRECT_URI -ne $ExpectedRedirectUri) { throw "MI_ML_REDIRECT_URI diverge do callback registrado aprovado." }
-if (-not $env:MI_DATABASE_URL) { throw "MI_DATABASE_URL ausente na sessao." }
+
+# Do not depend on the current PowerShell process for the PostgreSQL connection.
+# Prefer the current process when explicitly supplied, then persistent User/Machine scopes.
+if (-not $env:MI_DATABASE_URL) {
+    $persistentDbUrl = [Environment]::GetEnvironmentVariable("MI_DATABASE_URL", "User")
+    if (-not $persistentDbUrl) {
+        $persistentDbUrl = [Environment]::GetEnvironmentVariable("MI_DATABASE_URL", "Machine")
+    }
+    if ($persistentDbUrl) {
+        $env:MI_DATABASE_URL = $persistentDbUrl
+        Write-Host "MI_DATABASE_URL_LOADED_FROM_WINDOWS=True"
+    }
+}
+if (-not $env:MI_DATABASE_URL) {
+    throw "MI_DATABASE_URL ausente. Nenhuma conexao foi encontrada nos escopos Process/User/Machine do Windows."
+}
 
 $env:PYTHONPATH = "$Repo\src;$Repo"
 $env:MI_CONTROLLED_WRITE_TEST_APPROVED = "pause-resume-1-item"
