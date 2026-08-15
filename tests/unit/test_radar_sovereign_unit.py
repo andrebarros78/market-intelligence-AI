@@ -13,5 +13,5 @@ def test_radar_is_sovereign_universal_unit_not_worker() -> None:
     assert identity.marketplace_write_capability is False
 
 
-def test_radar_runtime_requires_sovereign_learning_schema() -> None:
-    assert EXPECTED_ALEMBIC_HEAD == '0008_sovereign_learning'
+def test_radar_runtime_uses_current_sovereign_core_schema() -> None:
+    assert EXPECTED_ALEMBIC_HEAD == "0009_sovereign_intelligence_core"
