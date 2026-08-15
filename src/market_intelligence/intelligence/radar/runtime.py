@@ -153,16 +153,26 @@ async def run_cycle(database_url: str) -> dict[str, Any]:
             head = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
             if str(head) != EXPECTED_ALEMBIC_HEAD:
                 raise RuntimeError(f"radar_schema_head_mismatch:{head}")
-            raw_count = int((await session.execute(select(func.count()).select_from(RawEventRecord))).scalar_one())
+            raw_count = int(
+                (await session.execute(select(func.count()).select_from(RawEventRecord))).scalar_one()
+            )
             rows = (
-                await session.execute(select(EvidenceRecord).order_by(EvidenceRecord.observed_at.desc()).limit(500))
+                await session.execute(
+                    select(EvidenceRecord)
+                    .order_by(EvidenceRecord.observed_at.desc())
+                    .limit(500)
+                )
             ).scalars().all()
-            channel_count = int((await session.execute(select(func.count()).select_from(ChannelEventRecord))).scalar_one())
+            channel_count = int(
+                (await session.execute(select(func.count()).select_from(ChannelEventRecord))).scalar_one()
+            )
             channel_marketplaces = tuple(
                 sorted(
                     str(value)
                     for value in (
-                        await session.execute(select(ChannelEventRecord.marketplace).distinct())
+                        await session.execute(
+                            select(ChannelEventRecord.marketplace).distinct()
+                        )
                     ).scalars().all()
                     if value
                 )
@@ -182,8 +192,12 @@ async def run_cycle(database_url: str) -> dict[str, Any]:
 
         skills = SKILL_REGISTRY.all()
         executable = [item for item in skills if item.executable]
-        proprietary_executable = sum(1 for item in executable if item.license_status is SkillLicenseStatus.PROPRIETARY)
-        quarantine_executable = sum(1 for item in executable if item.license_status is SkillLicenseStatus.QUARANTINE)
+        proprietary_executable = sum(
+            1 for item in executable if item.license_status is SkillLicenseStatus.PROPRIETARY
+        )
+        quarantine_executable = sum(
+            1 for item in executable if item.license_status is SkillLicenseStatus.QUARANTINE
+        )
         return {
             "timestamp": datetime.now(UTC).isoformat(),
             "radar_active": True,
@@ -215,7 +229,10 @@ async def run_cycle(database_url: str) -> dict[str, Any]:
 def _write_status(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
     temporary.replace(path)
 
 
@@ -230,14 +247,16 @@ async def run_forever(
     while True:
         try:
             status = await run_cycle(database_url)
-            status["unit_state"] = "ACTIVE" if status["validated_evidence_seen"] else "ACTIVE_IDLE"
+            status["unit_state"] = (
+                "ACTIVE" if status["validated_evidence_seen"] else "ACTIVE_IDLE"
+            )
             status["internal_executor_state"] = "RUNNING"
             if status_enricher is not None:
                 status = status_enricher(status)
             _write_status(status_path, status)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # fail observable, keep retrying read-only health
             _write_status(
                 status_path,
                 {
