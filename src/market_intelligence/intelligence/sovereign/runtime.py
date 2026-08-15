@@ -16,13 +16,19 @@ from market_intelligence.intelligence.sovereign.core import SovereignIntelligenc
 from market_intelligence.intelligence.sovereign.models import SignalEnvelope
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
 from market_intelligence.persistence.learning import PostgresLearningRepository
-from market_intelligence.persistence.models import ChannelEventRecord, InvestigationCaseRecord, SnapshotRecord
+from market_intelligence.persistence.models import (
+    ChannelEventRecord,
+    InvestigationCaseRecord,
+    RawEventRecord,
+    SnapshotRecord,
+)
 from market_intelligence.persistence.postgresql import database_healthcheck
 from market_intelligence.persistence.sovereign_intelligence import PostgresSovereignIntelligenceRepository
 
 
 EXPECTED_ALEMBIC_HEAD = "0009_sovereign_intelligence_core"
 MISSION_ID = "sovereign-intelligence-core-runtime"
+_SURFACE_SOURCE = "mercadolivre_surface_probe"
 
 
 def _assert_read_only_policy() -> None:
@@ -40,8 +46,14 @@ def _safe_snapshot_payload(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
     allowed = {
-        "price", "available_quantity", "sold_quantity", "visits", "status",
-        "listing_type_id", "catalog_listing", "condition",
+        "price",
+        "available_quantity",
+        "sold_quantity",
+        "visits",
+        "status",
+        "listing_type_id",
+        "catalog_listing",
+        "condition",
     }
     result: dict[str, Any] = {}
     for key in allowed:
@@ -53,7 +65,13 @@ def _safe_snapshot_payload(payload: Any) -> dict[str, Any]:
 
 def _snapshot_signal(row: SnapshotRecord) -> SignalEnvelope:
     return SignalEnvelope(
-        signal_id=_signal_id(row.marketplace, row.entity_type, row.entity_id, row.payload_hash, row.captured_at.isoformat()),
+        signal_id=_signal_id(
+            row.marketplace,
+            row.entity_type,
+            row.entity_id,
+            row.payload_hash,
+            row.captured_at.isoformat(),
+        ),
         marketplace=row.marketplace,
         entity_type=row.entity_type,
         entity_id=row.entity_id,
@@ -61,7 +79,11 @@ def _snapshot_signal(row: SnapshotRecord) -> SignalEnvelope:
         source="universal_sensor_snapshot",
         observed_at=row.captured_at,
         payload=_safe_snapshot_payload(row.payload),
-        provenance={"record": "snapshots", "payload_hash": row.payload_hash, "capture": "official_read_sensor"},
+        provenance={
+            "record": "snapshots",
+            "payload_hash": row.payload_hash,
+            "capture": "official_read_sensor",
+        },
         official_resource_fetched=True,
         confidence=0.70,
     )
@@ -69,7 +91,12 @@ def _snapshot_signal(row: SnapshotRecord) -> SignalEnvelope:
 
 def _channel_signal(row: ChannelEventRecord) -> SignalEnvelope:
     return SignalEnvelope(
-        signal_id=_signal_id(row.marketplace, row.operation, row.dedupe_key, row.observed_at.isoformat()),
+        signal_id=_signal_id(
+            row.marketplace,
+            row.operation,
+            row.dedupe_key,
+            row.observed_at.isoformat(),
+        ),
         marketplace=row.marketplace,
         entity_type="channel_operation",
         entity_id=row.operation[:160],
@@ -88,8 +115,46 @@ def _channel_signal(row: ChannelEventRecord) -> SignalEnvelope:
             "request_id_present": bool(row.request_id),
             "correlation_id_present": bool(row.correlation_id),
         },
-        official_resource_fetched=bool(row.status_code is not None and 200 <= row.status_code < 300),
+        official_resource_fetched=bool(
+            row.status_code is not None and 200 <= row.status_code < 300
+        ),
         confidence=0.60,
+    )
+
+
+def _surface_signal(row: RawEventRecord) -> SignalEnvelope:
+    payload = row.payload if isinstance(row.payload, dict) else {}
+    official_get = payload.get("official_get") is True
+    resource = str(payload.get("resolved_resource") or row.resource or "")
+    return SignalEnvelope(
+        signal_id=_signal_id(
+            "surface",
+            row.event_type,
+            row.dedupe_key,
+            row.received_at.isoformat(),
+        ),
+        marketplace="mercadolivre",
+        entity_type="surface",
+        entity_id=_signal_id(row.event_type, resource)[:40],
+        kind=row.event_type,
+        source=_SURFACE_SOURCE,
+        observed_at=row.occurred_at or row.received_at,
+        payload={
+            "schema_fingerprint": payload.get("schema_fingerprint"),
+            "schema_paths": list(payload.get("schema_paths") or [])[:512],
+            "top_level_fields": list(payload.get("top_level_fields") or [])[:256],
+            "topic": payload.get("topic"),
+            "official_get": official_get,
+            "values_persisted": False,
+        },
+        provenance={
+            "record": "raw_events",
+            "payload_hash": row.payload_hash,
+            "resource": resource,
+            "privacy_mode": "schema_only_no_values",
+        },
+        official_resource_fetched=official_get,
+        confidence=1.0 if official_get else 0.5,
     )
 
 
@@ -132,8 +197,31 @@ async def _channel_history(
     return tuple(_channel_signal(item) for item in reversed(rows))
 
 
+async def _surface_history(
+    sessions: async_sessionmaker[AsyncSession], row: RawEventRecord, *, limit: int = 8
+) -> tuple[SignalEnvelope, ...]:
+    async with sessions() as session:
+        rows = (
+            await session.execute(
+                select(RawEventRecord)
+                .where(
+                    RawEventRecord.source == _SURFACE_SOURCE,
+                    RawEventRecord.event_type == row.event_type,
+                    RawEventRecord.received_at < row.received_at,
+                )
+                .order_by(desc(RawEventRecord.received_at))
+                .limit(limit)
+            )
+        ).scalars().all()
+    return tuple(_surface_signal(item) for item in reversed(rows))
+
+
 async def _investigation_for(
-    sessions: async_sessionmaker[AsyncSession], *, marketplace: str, entity_type: str, entity_id: str
+    sessions: async_sessionmaker[AsyncSession],
+    *,
+    marketplace: str,
+    entity_type: str,
+    entity_id: str,
 ) -> dict[str, Any] | None:
     async with sessions() as session:
         case = (
@@ -165,6 +253,22 @@ async def _investigation_for(
     }
 
 
+async def _persist_cognitive_report(
+    *,
+    report,
+    repository: PostgresSovereignIntelligenceRepository,
+    learning_repository: PostgresLearningRepository,
+) -> bool:
+    inserted = await repository.persist_report(report)
+    learning_decision = SovereignLearningDecision.model_validate(report.learning)
+    episode_id = await learning_repository.persist_episode(learning_decision)
+    await learning_repository.ensure_promotion_candidates(
+        episode_id=episode_id,
+        decision=learning_decision,
+    )
+    return inserted
+
+
 async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, Any]:
     _assert_read_only_policy()
     engine = create_database_engine(database_url)
@@ -177,31 +281,55 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
         if not await database_healthcheck(sessions):
             raise RuntimeError("sovereign_core_database_health_failed")
         async with sessions() as session:
-            head = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
+            head = (
+                await session.execute(text("SELECT version_num FROM alembic_version"))
+            ).scalar_one()
             if str(head) != EXPECTED_ALEMBIC_HEAD:
                 raise RuntimeError(f"sovereign_core_schema_head_mismatch:{head}")
             snapshots = (
-                await session.execute(select(SnapshotRecord).order_by(desc(SnapshotRecord.captured_at)).limit(max_records))
+                await session.execute(
+                    select(SnapshotRecord)
+                    .order_by(desc(SnapshotRecord.captured_at))
+                    .limit(max_records)
+                )
             ).scalars().all()
             channels = (
-                await session.execute(select(ChannelEventRecord).order_by(desc(ChannelEventRecord.observed_at)).limit(max_records))
+                await session.execute(
+                    select(ChannelEventRecord)
+                    .order_by(desc(ChannelEventRecord.observed_at))
+                    .limit(max_records)
+                )
+            ).scalars().all()
+            surfaces = (
+                await session.execute(
+                    select(RawEventRecord)
+                    .where(RawEventRecord.source == _SURFACE_SOURCE)
+                    .order_by(desc(RawEventRecord.received_at))
+                    .limit(max_records)
+                )
             ).scalars().all()
 
         processed = inserted = validated = quarantined = audit_failures = exposure_updates = 0
+        surface_signals_processed = 0
         latest_signal_id: str | None = None
 
         for row in reversed(snapshots):
             signal = _snapshot_signal(row)
             history = await _snapshot_history(sessions, row)
             investigation = await _investigation_for(
-                sessions, marketplace=row.marketplace, entity_type=row.entity_type, entity_id=row.entity_id
+                sessions,
+                marketplace=row.marketplace,
+                entity_type=row.entity_type,
+                entity_id=row.entity_id,
             )
             report = core.process(signal, history=history, investigation=investigation)
-            if await repository.persist_report(report):
-                inserted += 1
-            learning_decision = SovereignLearningDecision.model_validate(report.learning)
-            episode_id = await learning_repository.persist_episode(learning_decision)
-            await learning_repository.ensure_promotion_candidates(episode_id=episode_id, decision=learning_decision)
+            inserted += int(
+                await _persist_cognitive_report(
+                    report=report,
+                    repository=repository,
+                    learning_repository=learning_repository,
+                )
+            )
             processed += 1
             latest_signal_id = signal.signal_id
             exposure_updates += len(report.counterintelligence)
@@ -213,12 +341,33 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
             signal = _channel_signal(row)
             history = await _channel_history(sessions, row)
             report = core.process(signal, history=history)
-            if await repository.persist_report(report):
-                inserted += 1
-            learning_decision = SovereignLearningDecision.model_validate(report.learning)
-            episode_id = await learning_repository.persist_episode(learning_decision)
-            await learning_repository.ensure_promotion_candidates(episode_id=episode_id, decision=learning_decision)
+            inserted += int(
+                await _persist_cognitive_report(
+                    report=report,
+                    repository=repository,
+                    learning_repository=learning_repository,
+                )
+            )
             processed += 1
+            latest_signal_id = signal.signal_id
+            exposure_updates += len(report.counterintelligence)
+            validated += int(report.validation.state.value == "validated")
+            quarantined += int(report.validation.state.value == "quarantined")
+            audit_failures += int(not report.audit.passed)
+
+        for row in reversed(surfaces):
+            signal = _surface_signal(row)
+            history = await _surface_history(sessions, row)
+            report = core.process(signal, history=history)
+            inserted += int(
+                await _persist_cognitive_report(
+                    report=report,
+                    repository=repository,
+                    learning_repository=learning_repository,
+                )
+            )
+            processed += 1
+            surface_signals_processed += 1
             latest_signal_id = signal.signal_id
             exposure_updates += len(report.counterintelligence)
             validated += int(report.validation.state.value == "validated")
@@ -227,15 +376,33 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
 
         await repository.save_checkpoint(
             mission_id=MISSION_ID,
-            cursor={"latest_signal_id": latest_signal_id, "completed_at": datetime.now(UTC).isoformat()},
+            cursor={
+                "latest_signal_id": latest_signal_id,
+                "completed_at": datetime.now(UTC).isoformat(),
+            },
             processed_count=processed,
             marketplace_writes=0,
         )
 
         async with sessions() as session:
-            intelligence_total = int((await session.execute(text("SELECT count(*) FROM sovereign_intelligence"))).scalar_one())
-            exposure_total = int((await session.execute(text("SELECT count(*) FROM exposure_map"))).scalar_one())
-            learning_total = int((await session.execute(text("SELECT count(*) FROM learning_episodes"))).scalar_one())
+            intelligence_total = int(
+                (await session.execute(text("SELECT count(*) FROM sovereign_intelligence"))).scalar_one()
+            )
+            exposure_total = int(
+                (await session.execute(text("SELECT count(*) FROM exposure_map"))).scalar_one()
+            )
+            learning_total = int(
+                (await session.execute(text("SELECT count(*) FROM learning_episodes"))).scalar_one()
+            )
+            surface_total = int(
+                (
+                    await session.execute(
+                        select(RawEventRecord)
+                        .where(RawEventRecord.source == _SURFACE_SOURCE)
+                        .with_only_columns(text("count(*)"))
+                    )
+                ).scalar_one()
+            )
 
         return {
             "timestamp": datetime.now(UTC).isoformat(),
@@ -244,6 +411,8 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
             "core_version": core.version,
             "radar_subsystem": True,
             "processed_this_cycle": processed,
+            "surface_signals_processed_this_cycle": surface_signals_processed,
+            "surface_observations_total": surface_total,
             "new_intelligence_records": inserted,
             "intelligence_records_total": intelligence_total,
             "exposure_map_records_total": exposure_total,
@@ -265,12 +434,19 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
 def _write_status(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
     temporary.replace(path)
 
 
 async def run_forever(
-    database_url: str, *, status_path: Path, interval_seconds: float = 60.0, max_records: int = 32
+    database_url: str,
+    *,
+    status_path: Path,
+    interval_seconds: float = 60.0,
+    max_records: int = 32,
 ) -> None:
     _assert_read_only_policy()
     while True:
