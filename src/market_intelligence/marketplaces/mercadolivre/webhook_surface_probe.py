@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -51,7 +52,6 @@ _SAFE_RESOURCE_PATTERNS: dict[str, re.Pattern[str]] = {
     ),
 }
 _ITEMS_RESOURCE = re.compile(rf"^/items/({_IDENTIFIER})$")
-_SAFE_ROOT = re.compile(r"^[a-z0-9_-]{1,64}$", re.IGNORECASE)
 _MAX_SCHEMA_PATHS = 512
 
 
@@ -87,7 +87,13 @@ def resolve_safe_notification_resource(topic: str, resource: str) -> str | None:
     return path
 
 
-def _schema_paths(value: Any, *, prefix: str = "$", depth: int = 0, max_depth: int = 6) -> tuple[str, ...]:
+def _schema_paths(
+    value: Any,
+    *,
+    prefix: str = "$",
+    depth: int = 0,
+    max_depth: int = 6,
+) -> tuple[str, ...]:
     if depth > max_depth:
         return (f"{prefix}:max_depth",)
     if isinstance(value, dict):
@@ -98,17 +104,28 @@ def _schema_paths(value: Any, *, prefix: str = "$", depth: int = 0, max_depth: i
             paths.append(f"{child_prefix}:{type(child).__name__}")
             if len(paths) >= _MAX_SCHEMA_PATHS:
                 break
-            paths.extend(_schema_paths(child, prefix=child_prefix, depth=depth + 1, max_depth=max_depth))
+            paths.extend(
+                _schema_paths(
+                    child,
+                    prefix=child_prefix,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                )
+            )
             if len(paths) >= _MAX_SCHEMA_PATHS:
                 break
         return tuple(paths[:_MAX_SCHEMA_PATHS])
     if isinstance(value, list):
         if not value:
             return (f"{prefix}[]:empty",)
-        # Shape only. Never persist list values from a generic surface probe.
         return (
             f"{prefix}[]:{type(value[0]).__name__}",
-        ) + _schema_paths(value[0], prefix=f"{prefix}[]", depth=depth + 1, max_depth=max_depth)
+        ) + _schema_paths(
+            value[0],
+            prefix=f"{prefix}[]",
+            depth=depth + 1,
+            max_depth=max_depth,
+        )
     return ()
 
 
@@ -125,9 +142,11 @@ def schema_only_observation(payload: dict[str, Any]) -> dict[str, Any]:
 def _resource_metadata_only(resource: str) -> dict[str, Any]:
     path = _normalize_path(resource)
     segments = [segment for segment in path.split("/") if segment]
-    root = segments[0] if segments and _SAFE_ROOT.fullmatch(segments[0]) else "[REDACTED]"
+    root = segments[0] if segments else ""
+    root_hash = hashlib.sha256(root.encode("utf-8")).hexdigest()[:16] if root else None
     return {
-        "resource_root": root,
+        "resource_root": "[REDACTED]" if root else None,
+        "resource_root_hash": root_hash,
         "resource_segments": min(len(segments), 32),
         "resource_has_leading_slash": resource.strip().startswith("/"),
     }
