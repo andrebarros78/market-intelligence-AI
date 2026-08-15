@@ -15,6 +15,10 @@ from market_intelligence.marketplaces.mercadolivre.http_client import (
     MercadoLivreReadOnlyAdapter,
 )
 from market_intelligence.marketplaces.mercadolivre.schema import schema_fingerprint
+from market_intelligence.marketplaces.mercadolivre.surface_registry import (
+    SurfaceCaptureMode,
+    surfaces_for_topic,
+)
 from market_intelligence.persistence.models import RawEventRecord
 from market_intelligence.persistence.postgresql import (
     PostgresChannelEventRepository,
@@ -47,6 +51,7 @@ _SAFE_RESOURCE_PATTERNS: dict[str, re.Pattern[str]] = {
     ),
 }
 _ITEMS_RESOURCE = re.compile(rf"^/items/({_IDENTIFIER})$")
+_SAFE_ROOT = re.compile(r"^[a-z0-9_-]{1,64}$", re.IGNORECASE)
 _MAX_SCHEMA_PATHS = 512
 
 
@@ -61,7 +66,8 @@ def resolve_safe_notification_resource(topic: str, resource: str) -> str | None:
     """Resolve a notification into a GET-only low-PII resource.
 
     The result is still validated by Module01SecurityPolicy inside the read adapter.
-    Returning None means the topic must be handled by a dedicated privacy-aware reader.
+    Returning None means the topic must be handled by a dedicated privacy-aware reader
+    or registered as an unrecognized/changing surface without following its resource.
     """
 
     normalized_topic = topic.strip().lower()
@@ -116,6 +122,37 @@ def schema_only_observation(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _resource_metadata_only(resource: str) -> dict[str, Any]:
+    path = _normalize_path(resource)
+    segments = [segment for segment in path.split("/") if segment]
+    root = segments[0] if segments and _SAFE_ROOT.fullmatch(segments[0]) else "[REDACTED]"
+    return {
+        "resource_root": root,
+        "resource_segments": min(len(segments), 32),
+        "resource_has_leading_slash": resource.strip().startswith("/"),
+    }
+
+
+def unresolved_surface_observation(topic: str, resource: str) -> dict[str, Any]:
+    registered = surfaces_for_topic(topic)
+    capture_modes = {surface.capture_mode for surface in registered}
+    if not registered:
+        resolution_status = "unknown_notification_topic"
+    elif SurfaceCaptureMode.WEBHOOK_GET_SAFE in capture_modes:
+        resolution_status = "known_topic_resource_shape_changed_or_invalid"
+    else:
+        resolution_status = "dedicated_privacy_or_metadata_reader_required"
+    return {
+        "topic": topic.strip().lower(),
+        "known_topic": bool(registered),
+        "resolution_status": resolution_status,
+        "capture_modes": sorted(mode.value for mode in capture_modes),
+        "official_get": False,
+        "values_persisted": False,
+        **_resource_metadata_only(resource),
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class SurfaceProbeReport:
     considered: int = 0
@@ -125,14 +162,15 @@ class SurfaceProbeReport:
     failures: int = 0
     channel_events: int = 0
     new_surface_events: int = 0
+    unresolved_surface_events: int = 0
 
 
 class MercadoLivreWebhookSurfaceProbe:
     """Sondador read-only for resource/schema surfaces announced by ML webhooks.
 
     It follows only an explicit low-PII allowlist and persists schema/shape metadata,
-    never the generic response values. This lets the system discover new fields and
-    endpoint shape changes without turning PII-rich resources into a broad data lake.
+    never generic response values. Unknown topics and unexpected resource shapes are
+    recorded as metadata-only discoveries instead of being followed automatically.
     """
 
     source = "mercadolivre_surface_probe"
@@ -151,6 +189,34 @@ class MercadoLivreWebhookSurfaceProbe:
         self.raw = PostgresRawEventRepository(sessions)
         self.channel = PostgresChannelEventRepository(sessions)
         self.bus = bus or UniversalSensorBus()
+
+    async def _persist_unresolved(self, row: RawEventRecord, marker: str) -> bool:
+        observation = unresolved_surface_observation(row.event_type, row.resource or "")
+        event = build_raw_event(
+            source=self.source,
+            event_type=f"surface_unresolved:{row.event_type}",
+            external_id=marker,
+            resource=None,
+            occurred_at=row.occurred_at,
+            received_at=datetime.now(UTC),
+            payload=observation,
+        )
+        inserted = await self.raw.append_if_new(event)
+        if inserted:
+            await self.bus.publish(
+                SensorSignal(
+                    marketplace="mercadolivre",
+                    kind=SensorSignalKind.SCHEMA_CHANGE,
+                    evidence_kind=EvidenceKind.FACT,
+                    source="webhook_surface_metadata_only",
+                    observed_at=row.occurred_at or row.received_at,
+                    declared=False,
+                    payload=observation,
+                    confidence=1.0,
+                    validated=True,
+                )
+            )
+        return inserted
 
     async def collect_once(self) -> SurfaceProbeReport:
         async with self.sessions() as session:
@@ -173,7 +239,7 @@ class MercadoLivreWebhookSurfaceProbe:
                 ).scalars().all()
             )
 
-        considered = fetched = skipped = already = failures = channels = new_events = 0
+        considered = fetched = skipped = already = failures = channels = new_events = unresolved = 0
         for row in reversed(webhook_rows):
             considered += 1
             marker = f"webhook:{row.dedupe_key}"
@@ -183,6 +249,11 @@ class MercadoLivreWebhookSurfaceProbe:
             resolved = resolve_safe_notification_resource(row.event_type, row.resource or "")
             if resolved is None:
                 skipped += 1
+                inserted = await self._persist_unresolved(row, marker)
+                new_events += int(inserted)
+                unresolved += int(inserted)
+                if inserted:
+                    processed.add(marker)
                 continue
             try:
                 result = await self.adapter.fetch_resource_observed(resolved)
@@ -200,6 +271,7 @@ class MercadoLivreWebhookSurfaceProbe:
                     "resolved_resource": resolved,
                     "official_get": True,
                     "values_persisted": False,
+                    "resolution_status": "official_get_schema_observed",
                 }
             )
             event = build_raw_event(
@@ -237,4 +309,5 @@ class MercadoLivreWebhookSurfaceProbe:
             failures=failures,
             channel_events=channels,
             new_surface_events=new_events,
+            unresolved_surface_events=unresolved,
         )
