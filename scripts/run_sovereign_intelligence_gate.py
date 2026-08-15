@@ -85,6 +85,7 @@ def main() -> int:
                 "tests/unit/test_sovereign_intelligence_core.py",
                 "tests/unit/test_sovereign_intelligence_architecture.py",
                 "tests/unit/test_sovereign_intelligence_unit.py",
+                "tests/unit/test_sovereign_investigation_bridge.py",
             ],
         ),
         run(
@@ -131,7 +132,7 @@ def main() -> int:
                     [
                         python,
                         "-c",
-                        "import asyncio, os; from market_intelligence.intelligence.sovereign.runtime import run_cycle; r=asyncio.run(run_cycle(os.environ['TEST_DATABASE_URL'], max_records=8)); assert r['core_health']=='PASS', r; assert r['marketplace_writes']==0, r; print('CORE_RUNTIME='+str(r))",
+                        "import asyncio, os; from market_intelligence.intelligence.sovereign.runtime import run_cycle; r=asyncio.run(run_cycle(os.environ['TEST_DATABASE_URL'], max_records=8)); assert r['core_health']=='PASS', r; assert r['investigation_failures']==0, r; assert r['cognitive_audit_failures']==0, r; assert r['marketplace_writes']==0, r; print('CORE_RUNTIME='+str(r))",
                     ],
                     timeout=600,
                 ),
@@ -153,6 +154,7 @@ def main() -> int:
         "gate": "SOVEREIGN_INTELLIGENCE_COUNTERINTELLIGENCE_CORE",
         "core_version": "1.0.0",
         "radar_is_subsystem": True,
+        "progressive_investigator_integrated": True,
         "sondador_surface_discovery": True,
         "observation_lab_har_schema_only": True,
         "read_only": True,
