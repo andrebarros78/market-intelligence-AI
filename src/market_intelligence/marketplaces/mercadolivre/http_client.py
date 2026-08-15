@@ -313,6 +313,40 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
             params={"ids": self._safe_identifier(item_id)},
         )
 
+    async def read_user_items(
+        self, user_id: str, *, status: str = "active", limit: int = 50
+    ) -> MercadoLivreReadResult:
+        safe_status = self._safe_identifier(status)
+        bounded_limit = max(1, min(int(limit), 100))
+        return await self._read(
+            f"/users/{self._safe_identifier(user_id)}/items/search",
+            params={"status": safe_status, "limit": str(bounded_limit)},
+        )
+
+    async def read_orders_search(
+        self, seller_id: str, *, limit: int = 20
+    ) -> MercadoLivreReadResult:
+        bounded_limit = max(1, min(int(limit), 50))
+        return await self._read(
+            "/orders/search",
+            params={"seller": self._safe_identifier(seller_id), "sort": "date_desc", "limit": str(bounded_limit)},
+        )
+
+    async def read_questions_search(
+        self, seller_id: str, *, limit: int = 50
+    ) -> MercadoLivreReadResult:
+        bounded_limit = max(1, min(int(limit), 50))
+        return await self._read(
+            "/questions/search",
+            params={"seller_id": self._safe_identifier(seller_id), "api_version": "4", "limit": str(bounded_limit)},
+        )
+
+    async def read_open_claims(self, *, limit: int = 30) -> MercadoLivreReadResult:
+        bounded_limit = max(1, min(int(limit), 30))
+        return await self._read(
+            "/post-purchase/v1/claims/search",
+            params={"status": "opened", "limit": str(bounded_limit)},
+        )
     async def get_user_me(self) -> dict[str, Any]:
         return (await self.read_user_me()).payload
 

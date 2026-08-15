@@ -13,6 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_LIMIT = 20000
 
 
+def _workspace_env() -> dict[str, str]:
+    env = os.environ.copy()
+    local_src = str(ROOT / "src")
+    inherited = env.get("PYTHONPATH", "").strip()
+    env["PYTHONPATH"] = local_src + (os.pathsep + inherited if inherited else "")
+    return env
+
+
 def run(label: str, command: list[str], *, timeout: int = 600) -> dict[str, object]:
     try:
         completed = subprocess.run(
@@ -21,7 +29,7 @@ def run(label: str, command: list[str], *, timeout: int = 600) -> dict[str, obje
             text=True,
             capture_output=True,
             timeout=timeout,
-            env=os.environ.copy(),
+            env=_workspace_env(),
         )
         return {
             "label": label,
@@ -93,6 +101,22 @@ def main() -> int:
 
     checks: list[dict[str, object]] = []
     checks.append(run("compile", [python, "-m", "compileall", "-q", "src", "tests", "migrations", "scripts"]))
+    checks.append(
+        run(
+            "workspace_source",
+            [
+                python,
+                "-c",
+                (
+                    "import market_intelligence, pathlib; "
+                    "actual=pathlib.Path(market_intelligence.__file__).resolve(); "
+                    "expected=pathlib.Path('src/market_intelligence/__init__.py').resolve(); "
+                    "assert actual == expected, (actual, expected); "
+                    "print('WORKSPACE_SOURCE='+str(actual))"
+                ),
+            ],
+        )
+    )
     checks.append(
         run(
             "postgresql",
