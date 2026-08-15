@@ -8,6 +8,7 @@ $SupervisorRoot = Join-Path $RuntimeRoot "supervisor"
 $SupervisorStatus = Join-Path $SupervisorRoot "status.json"
 $RadarStatus = Join-Path $RuntimeRoot "radar-unit\status.json"
 $SensorStatus = Join-Path $RuntimeRoot "sensors\status.json"
+$CoreStatus = Join-Path $RuntimeRoot "sovereign-core\status.json"
 $Python = "C:\Python313\pythonw.exe"
 $Postgres = "C:\Program Files\PostgreSQL\17\bin\postgres.exe"
 $PostgresData = "C:\Users\andre\AppData\Local\MarketIntelligence\PostgreSQL17\data"
@@ -27,12 +28,8 @@ function Test-ListeningPort([int]$Port) {
 function Get-DatabaseUrl {
     $secure = (Get-Content -Raw -Path $SecretPath).Trim() | ConvertTo-SecureString
     $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-    try {
-        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
-    }
-    finally {
-        if ($ptr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
-    }
+    try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+    finally { if ($ptr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) } }
 }
 
 function Set-ChildEnvironment([string]$DatabaseUrl) {
@@ -43,9 +40,7 @@ function Set-ChildEnvironment([string]$DatabaseUrl) {
     $env:MI_ALLOW_MARKETPLACE_WRITES = "false"
 }
 
-function Clear-DatabaseEnvironment {
-    Remove-Item Env:MI_DATABASE_URL -ErrorAction SilentlyContinue
-}
+function Clear-DatabaseEnvironment { Remove-Item Env:MI_DATABASE_URL -ErrorAction SilentlyContinue }
 
 function Start-PermanentPostgres {
     if (Test-ListeningPort 55432) { return }
@@ -92,8 +87,7 @@ function Start-PermanentWebhook([string]$DatabaseUrl) {
 
 function Get-RadarUnitProcess {
     return Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*run_radar_sovereign_unit.py*" } |
-        Select-Object -First 1
+        Where-Object { $_.CommandLine -like "*run_radar_sovereign_unit.py*" } | Select-Object -First 1
 }
 
 function Start-RadarUnit([string]$DatabaseUrl) {
@@ -102,10 +96,7 @@ function Start-RadarUnit([string]$DatabaseUrl) {
     try {
         $radarScript = Join-Path $Repo "scripts\run_radar_sovereign_unit.py"
         $radarArgs = ('"{0}" --status-path "{1}" --interval-seconds 30' -f $radarScript, $RadarStatus)
-        Start-Process -FilePath $Python `
-            -ArgumentList $radarArgs `
-            -WorkingDirectory $Repo `
-            -WindowStyle Hidden `
+        Start-Process -FilePath $Python -ArgumentList $radarArgs -WorkingDirectory $Repo -WindowStyle Hidden `
             -RedirectStandardOutput (Join-Path $SupervisorRoot "radar.stdout.log") `
             -RedirectStandardError (Join-Path $SupervisorRoot "radar.stderr.log") | Out-Null
     }
@@ -114,8 +105,7 @@ function Start-RadarUnit([string]$DatabaseUrl) {
 
 function Get-SensorCollectorProcess {
     return Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*run_universal_sensor_collector.py*" } |
-        Select-Object -First 1
+        Where-Object { $_.CommandLine -like "*run_universal_sensor_collector.py*" } | Select-Object -First 1
 }
 
 function Start-SensorCollector([string]$DatabaseUrl) {
@@ -124,12 +114,27 @@ function Start-SensorCollector([string]$DatabaseUrl) {
     try {
         $sensorScript = Join-Path $Repo "scripts\run_universal_sensor_collector.py"
         $sensorArgs = ('"{0}" --status-path "{1}" --interval-seconds 300 --max-items-per-cycle 20' -f $sensorScript, $SensorStatus)
-        Start-Process -FilePath $Python `
-            -ArgumentList $sensorArgs `
-            -WorkingDirectory $Repo `
-            -WindowStyle Hidden `
+        Start-Process -FilePath $Python -ArgumentList $sensorArgs -WorkingDirectory $Repo -WindowStyle Hidden `
             -RedirectStandardOutput (Join-Path $SupervisorRoot "sensor.stdout.log") `
             -RedirectStandardError (Join-Path $SupervisorRoot "sensor.stderr.log") | Out-Null
+    }
+    finally { Clear-DatabaseEnvironment }
+}
+
+function Get-SovereignCoreProcess {
+    return Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like "*run_sovereign_intelligence_core.py*" } | Select-Object -First 1
+}
+
+function Start-SovereignCore([string]$DatabaseUrl) {
+    if (Get-SovereignCoreProcess) { return }
+    Set-ChildEnvironment $DatabaseUrl
+    try {
+        $coreScript = Join-Path $Repo "scripts\run_sovereign_intelligence_core.py"
+        $coreArgs = ('"{0}" --status-path "{1}" --interval-seconds 60 --max-records 32' -f $coreScript, $CoreStatus)
+        Start-Process -FilePath $Python -ArgumentList $coreArgs -WorkingDirectory $Repo -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $SupervisorRoot "sovereign-core.stdout.log") `
+            -RedirectStandardError (Join-Path $SupervisorRoot "sovereign-core.stderr.log") | Out-Null
     }
     finally { Clear-DatabaseEnvironment }
 }
@@ -140,7 +145,9 @@ function Write-SupervisorStatus([hashtable]$Status) {
     $Status.MI_ALLOW_MARKETPLACE_WRITES = $false
     $Status.operational_horizon_years = 5000
     $Status.lifecycle = "always_on"
-    $Status.unit_classification = "sovereign_universal_unit"
+    $Status.unit_classification = "sovereign_intelligence_counterintelligence_core"
+    $Status.radar_classification = "sovereign_universal_unit"
+    $Status.radar_is_subsystem = $true
     $Status.runtime_scope = "universal_multimarketplace"
     $Status.restart_policy = "always"
     $temp = "$SupervisorStatus.tmp"
@@ -156,11 +163,13 @@ while ($true) {
             Start-PermanentWebhook $db
             Start-RadarUnit $db
             Start-SensorCollector $db
+            Start-SovereignCore $db
         }
         finally { $db = $null; Clear-DatabaseEnvironment }
 
         $radarProcess = Get-RadarUnitProcess
         $sensorProcess = Get-SensorCollectorProcess
+        $coreProcess = Get-SovereignCoreProcess
         Write-SupervisorStatus @{
             supervisor = "ACTIVE"
             postgres_55432 = (Test-ListeningPort 55432)
@@ -169,6 +178,8 @@ while ($true) {
             radar_unit_pid = if ($radarProcess) { [int]$radarProcess.ProcessId } else { $null }
             sensor_collector_process = ($null -ne $sensorProcess)
             sensor_collector_pid = if ($sensorProcess) { [int]$sensorProcess.ProcessId } else { $null }
+            sovereign_core_process = ($null -ne $coreProcess)
+            sovereign_core_pid = if ($coreProcess) { [int]$coreProcess.ProcessId } else { $null }
             new_marketplace_write_executed = $false
         }
     }
@@ -179,6 +190,7 @@ while ($true) {
             webhook_8772 = (Test-WebhookHealth)
             radar_unit_process = ($null -ne (Get-RadarUnitProcess))
             sensor_collector_process = ($null -ne (Get-SensorCollectorProcess))
+            sovereign_core_process = ($null -ne (Get-SovereignCoreProcess))
             error = $_.Exception.GetType().Name
             new_marketplace_write_executed = $false
         }
