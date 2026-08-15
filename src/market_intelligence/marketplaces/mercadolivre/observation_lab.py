@@ -36,6 +36,9 @@ _SECRET_FIELD_NAMES = {
     "api_key",
     "apikey",
 }
+_SECRET_PATH_TOKEN = re.compile(
+    r"(?i)(?P<prefix>\.|\[\])(?:access_token|refresh_token|client_secret|authorization|password|cookie|set-cookie|api_key|apikey)(?P<suffix>:|\.|\[|$)"
+)
 
 
 def _allowed_host(host: str) -> bool:
@@ -77,6 +80,36 @@ def _header_summary(headers: Any) -> dict[str, Any]:
     }
 
 
+def _secret_field_name(name: str) -> bool:
+    normalized = name.strip().lower()
+    return (
+        normalized in _SECRET_FIELD_NAMES
+        or normalized.endswith(("_token", "_secret", "_password"))
+        or normalized.startswith(("token_", "secret_", "password_"))
+    )
+
+
+def _mask_schema_metadata(schema: dict[str, Any]) -> dict[str, Any]:
+    paths = [str(item) for item in schema.get("schema_paths") or []]
+    fields = [str(item) for item in schema.get("top_level_fields") or []]
+    secret_present = any(_secret_field_name(field) for field in fields) or any(
+        _SECRET_PATH_TOKEN.search(path) is not None for path in paths
+    )
+    masked_paths = [
+        _SECRET_PATH_TOKEN.sub(
+            lambda match: f"{match.group('prefix')}[SECRET_FIELD]{match.group('suffix')}",
+            path,
+        )
+        for path in paths
+    ]
+    masked_fields = ["[SECRET_FIELD]" if _secret_field_name(field) else field for field in fields]
+    result = dict(schema)
+    result["schema_paths"] = list(dict.fromkeys(masked_paths))[:512]
+    result["top_level_fields"] = sorted(set(masked_fields))[:256]
+    result["secret_field_present"] = secret_present
+    return result
+
+
 def _json_schema_only(text: Any) -> dict[str, Any] | None:
     if not isinstance(text, str) or not text:
         return None
@@ -88,31 +121,36 @@ def _json_schema_only(text: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(payload, dict):
         return {"json_root_type": type(payload).__name__}
-    return schema_only_observation(payload)
+    return _mask_schema_metadata(schema_only_observation(payload))
 
 
 def _post_data_schema(post_data: Any) -> dict[str, Any]:
     if not isinstance(post_data, dict):
         return {"body_present": False}
     mime_type = str(post_data.get("mimeType") or "").split(";", 1)[0].strip().lower()
-    result: dict[str, Any] = {"body_present": bool(post_data.get("text") or post_data.get("params")), "mime_type": mime_type}
+    result: dict[str, Any] = {
+        "body_present": bool(post_data.get("text") or post_data.get("params")),
+        "mime_type": mime_type,
+    }
     if mime_type == "application/json":
         schema = _json_schema_only(post_data.get("text"))
         if schema is not None:
             result["json_schema"] = schema
     elif isinstance(post_data.get("params"), list):
-        # Form values are never persisted; only field names are useful for exposure mapping.
         names = []
+        secret_present = False
         for item in post_data["params"]:
-            if isinstance(item, dict):
-                name = str(item.get("name") or "").strip()
-                if name and name.lower() not in _SECRET_FIELD_NAMES:
-                    names.append(name)
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            if _secret_field_name(name):
+                secret_present = True
+                continue
+            names.append(name)
         result["form_field_names"] = sorted(set(names))[:128]
-        result["secret_form_field_present"] = any(
-            isinstance(item, dict) and str(item.get("name") or "").strip().lower() in _SECRET_FIELD_NAMES
-            for item in post_data["params"]
-        )
+        result["secret_form_field_present"] = secret_present
     return result
 
 
@@ -142,7 +180,7 @@ def _query_keys(query: Any) -> tuple[str, ...]:
         if not isinstance(item, dict):
             continue
         name = str(item.get("name") or "").strip()
-        if not name or name.lower() in _SECRET_FIELD_NAMES or name.lower().endswith(("_token", "_secret")):
+        if not name or _secret_field_name(name):
             continue
         keys.append(name)
     return tuple(sorted(set(keys))[:128])
@@ -219,7 +257,9 @@ def analyze_har(har: dict[str, Any]) -> HarObservationReport:
         template = _path_template(parsed.path)
         request_metadata = _header_summary(request.get("headers"))
         response_metadata = _response_schema(entry.get("response"))
-        credential_headers_observed += int(request_metadata.get("credential_header_present") is True)
+        credential_headers_observed += int(
+            request_metadata.get("credential_header_present") is True
+        )
         methods[method] += 1
         in_scope += 1
 
