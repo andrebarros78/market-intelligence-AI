@@ -68,9 +68,11 @@ def main() -> int:
                 "src/market_intelligence/persistence/sovereign_intelligence_models.py",
                 "src/market_intelligence/marketplaces/mercadolivre/surface_registry.py",
                 "src/market_intelligence/marketplaces/mercadolivre/webhook_surface_probe.py",
+                "src/market_intelligence/marketplaces/mercadolivre/observation_lab.py",
                 "src/market_intelligence/marketplaces/mercadolivre/full_read_collector.py",
                 "scripts/run_sovereign_intelligence_core.py",
                 "scripts/run_universal_sensor_collector.py",
+                "scripts/ingest_mercadolivre_observation_har.py",
             ],
         ),
         run(
@@ -95,6 +97,7 @@ def main() -> int:
                 "tests/unit/test_mercadolivre_webhook_surface_probe.py",
                 "tests/unit/test_mercadolivre_surface_registry.py",
                 "tests/unit/test_mercadolivre_unresolved_surface_probe.py",
+                "tests/unit/test_mercadolivre_observation_lab.py",
             ],
         ),
         run(
@@ -151,6 +154,7 @@ def main() -> int:
         "core_version": "1.0.0",
         "radar_is_subsystem": True,
         "sondador_surface_discovery": True,
+        "observation_lab_har_schema_only": True,
         "read_only": True,
         "marketplace_writes": 0,
         "test_database_executed": bool(test_db),
