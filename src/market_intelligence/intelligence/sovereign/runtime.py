@@ -22,7 +22,7 @@ from market_intelligence.persistence.postgresql import database_healthcheck
 from market_intelligence.persistence.sovereign_intelligence import PostgresSovereignIntelligenceRepository
 
 
-EXPECTED_ALEMBIC_HEAD = "0009_sovereign_intelligence_core"
+EXPECTED_ALEMBIC_HEAD = "0010_sovereign_missions"
 MISSION_ID = "sovereign-intelligence-core-runtime"
 _SURFACE_SOURCES = ("mercadolivre_surface_probe", "mercadolivre_observation_lab")
 

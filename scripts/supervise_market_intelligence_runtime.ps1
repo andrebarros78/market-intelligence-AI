@@ -9,6 +9,7 @@ $SupervisorStatus = Join-Path $SupervisorRoot "status.json"
 $RadarStatus = Join-Path $RuntimeRoot "radar-unit\status.json"
 $SensorStatus = Join-Path $RuntimeRoot "sensors\status.json"
 $CoreStatus = Join-Path $RuntimeRoot "sovereign-core\status.json"
+$MissionTokenPath = Join-Path $ConfigRoot "mission-api-token.txt"
 $Python = Join-Path $Repo ".venv-r113\Scripts\pythonw.exe"
 $Postgres = "C:\Program Files\PostgreSQL\17\bin\postgres.exe"
 $PostgresData = "C:\Users\andre\AppData\Local\MarketIntelligence\PostgreSQL17\data"
@@ -162,6 +163,40 @@ function Start-SovereignCore([string]$DatabaseUrl) {
     finally { Clear-DatabaseEnvironment }
 }
 
+
+
+function Get-MissionOrchestratorProcess {
+    $expected = Join-Path $Repo "scripts\run_sovereign_mission_orchestrator.py"
+    return Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($expected, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 } |
+        Select-Object -First 1
+}
+
+function Start-MissionOrchestrator([string]$DatabaseUrl) {
+    if (Get-MissionOrchestratorProcess) { return }
+    Set-ChildEnvironment $DatabaseUrl
+    try {
+        $script = Join-Path $Repo "scripts\run_sovereign_mission_orchestrator.py"
+        Start-Process -FilePath $Python `
+            -ArgumentList ('"{0}" --host 127.0.0.1 --port 8785' -f $script) `
+            -WorkingDirectory $Repo `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $SupervisorRoot "mission-orchestrator.stdout.log") `
+            -RedirectStandardError (Join-Path $SupervisorRoot "mission-orchestrator.stderr.log") | Out-Null
+    }
+    finally { Clear-DatabaseEnvironment }
+}
+
+function Get-MissionHealth {
+    if (-not (Test-ListeningPort 8785)) { return $null }
+    if (-not (Test-Path $MissionTokenPath)) { return $null }
+    try {
+        $token = (Get-Content -Raw -Path $MissionTokenPath).Trim()
+        return Invoke-RestMethod -Uri "http://127.0.0.1:8785/v1/mission-system/health" -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 3
+    }
+    catch { return $null }
+}
+
 function Write-SupervisorStatus([hashtable]$Status) {
     $Status.timestamp = [DateTimeOffset]::UtcNow.ToString("o")
     $Status.MI_READ_ONLY = $true
@@ -188,12 +223,15 @@ while ($true) {
             Start-RadarUnit $db
             Start-SensorCollector $db
             Start-SovereignCore $db
+            Start-MissionOrchestrator $db
         }
         finally { $db = $null; Clear-DatabaseEnvironment }
 
         $radarProcess = Get-RadarUnitProcess
         $sensorProcess = Get-SensorCollectorProcess
         $coreProcess = Get-SovereignCoreProcess
+        $missionProcess = Get-MissionOrchestratorProcess
+        $missionHealth = Get-MissionHealth
         Write-SupervisorStatus @{
             supervisor = "ACTIVE"
             postgres_55432 = (Test-ListeningPort 55432)
@@ -204,6 +242,12 @@ while ($true) {
             sensor_collector_pid = if ($sensorProcess) { [int]$sensorProcess.ProcessId } else { $null }
             sovereign_core_process = ($null -ne $coreProcess)
             sovereign_core_pid = if ($coreProcess) { [int]$coreProcess.ProcessId } else { $null }
+            mission_orchestrator_process = ($null -ne $missionProcess)
+            mission_orchestrator_pid = if ($missionProcess) { [int]$missionProcess.ProcessId } else { $null }
+            missions_running = if ($missionHealth) { [int]$missionHealth.missions_running } else { 0 }
+            missions_pending = if ($missionHealth) { [int]$missionHealth.missions_pending } else { 0 }
+            last_completed_mission = if ($missionHealth) { $missionHealth.last_completed_mission } else { $null }
+            last_report_at = if ($missionHealth) { $missionHealth.last_report_at } else { $null }
             new_marketplace_write_executed = $false
         }
     }
@@ -215,6 +259,7 @@ while ($true) {
             radar_unit_process = ($null -ne (Get-RadarUnitProcess))
             sensor_collector_process = ($null -ne (Get-SensorCollectorProcess))
             sovereign_core_process = ($null -ne (Get-SovereignCoreProcess))
+            mission_orchestrator_process = ($null -ne (Get-MissionOrchestratorProcess))
             error = $_.Exception.GetType().Name
             new_marketplace_write_executed = $false
         }
