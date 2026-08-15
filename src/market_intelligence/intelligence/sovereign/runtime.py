@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import desc, select, text
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from market_intelligence.intelligence.radar.sovereign_learning import SovereignLearningDecision
@@ -28,7 +28,7 @@ from market_intelligence.persistence.sovereign_intelligence import PostgresSover
 
 EXPECTED_ALEMBIC_HEAD = "0009_sovereign_intelligence_core"
 MISSION_ID = "sovereign-intelligence-core-runtime"
-_SURFACE_SOURCE = "mercadolivre_surface_probe"
+_SURFACE_SOURCES = ("mercadolivre_surface_probe", "mercadolivre_observation_lab")
 
 
 def _assert_read_only_policy() -> None:
@@ -124,37 +124,75 @@ def _channel_signal(row: ChannelEventRecord) -> SignalEnvelope:
 
 def _surface_signal(row: RawEventRecord) -> SignalEnvelope:
     payload = row.payload if isinstance(row.payload, dict) else {}
-    official_get = payload.get("official_get") is True
-    resource = str(payload.get("resolved_resource") or row.resource or "")
+    if row.source == "mercadolivre_observation_lab":
+        host = str(payload.get("host") or "")[:160]
+        method = str(payload.get("method") or "")[:16]
+        path_template = str(payload.get("path_template") or row.resource or "")[:512]
+        safe_payload = {
+            "host": host,
+            "method": method,
+            "path_template": path_template,
+            "status": payload.get("status") if isinstance(payload.get("status"), int) else None,
+            "request_query_keys": list(payload.get("request_query_keys") or [])[:128],
+            "request_metadata": dict(payload.get("request_metadata") or {}),
+            "request_body_schema": dict(payload.get("request_body_schema") or {}),
+            "response_metadata": dict(payload.get("response_metadata") or {}),
+            "capture_mode": "har_schema_metadata_only",
+            "values_persisted": False,
+        }
+        material = f"{host}|{method}|{path_template}"
+        official_resource_fetched = False
+        confidence = 0.80
+        provenance = {
+            "record": "raw_events",
+            "payload_hash": row.payload_hash,
+            "capture": "authorized_browser_har_offline_analysis",
+            "privacy_mode": "schema_metadata_only_no_values",
+        }
+    else:
+        official_get = payload.get("official_get") is True
+        resource = str(payload.get("resolved_resource") or row.resource or "")[:512]
+        safe_payload = {
+            "schema_fingerprint": payload.get("schema_fingerprint"),
+            "schema_paths": list(payload.get("schema_paths") or [])[:512],
+            "top_level_fields": list(payload.get("top_level_fields") or [])[:256],
+            "topic": payload.get("topic"),
+            "known_topic": payload.get("known_topic"),
+            "resolution_status": payload.get("resolution_status"),
+            "capture_modes": list(payload.get("capture_modes") or [])[:32],
+            "resource_root": payload.get("resource_root"),
+            "resource_segments": payload.get("resource_segments"),
+            "official_get": official_get,
+            "values_persisted": False,
+        }
+        material = f"{row.event_type}|{resource}"
+        official_resource_fetched = official_get
+        confidence = 1.0 if official_get else 0.65
+        provenance = {
+            "record": "raw_events",
+            "payload_hash": row.payload_hash,
+            "resource": resource,
+            "privacy_mode": "schema_only_no_values",
+        }
+
     return SignalEnvelope(
         signal_id=_signal_id(
             "surface",
+            row.source,
             row.event_type,
             row.dedupe_key,
             row.received_at.isoformat(),
         ),
         marketplace="mercadolivre",
         entity_type="surface",
-        entity_id=_signal_id(row.event_type, resource)[:40],
+        entity_id=_signal_id(row.source, material)[:40],
         kind=row.event_type,
-        source=_SURFACE_SOURCE,
+        source=row.source,
         observed_at=row.occurred_at or row.received_at,
-        payload={
-            "schema_fingerprint": payload.get("schema_fingerprint"),
-            "schema_paths": list(payload.get("schema_paths") or [])[:512],
-            "top_level_fields": list(payload.get("top_level_fields") or [])[:256],
-            "topic": payload.get("topic"),
-            "official_get": official_get,
-            "values_persisted": False,
-        },
-        provenance={
-            "record": "raw_events",
-            "payload_hash": row.payload_hash,
-            "resource": resource,
-            "privacy_mode": "schema_only_no_values",
-        },
-        official_resource_fetched=official_get,
-        confidence=1.0 if official_get else 0.5,
+        payload=safe_payload,
+        provenance=provenance,
+        official_resource_fetched=official_resource_fetched,
+        confidence=confidence,
     )
 
 
@@ -205,7 +243,7 @@ async def _surface_history(
             await session.execute(
                 select(RawEventRecord)
                 .where(
-                    RawEventRecord.source == _SURFACE_SOURCE,
+                    RawEventRecord.source == row.source,
                     RawEventRecord.event_type == row.event_type,
                     RawEventRecord.received_at < row.received_at,
                 )
@@ -303,7 +341,7 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
             surfaces = (
                 await session.execute(
                     select(RawEventRecord)
-                    .where(RawEventRecord.source == _SURFACE_SOURCE)
+                    .where(RawEventRecord.source.in_(_SURFACE_SOURCES))
                     .order_by(desc(RawEventRecord.received_at))
                     .limit(max_records)
                 )
@@ -397,9 +435,9 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
             surface_total = int(
                 (
                     await session.execute(
-                        select(RawEventRecord)
-                        .where(RawEventRecord.source == _SURFACE_SOURCE)
-                        .with_only_columns(text("count(*)"))
+                        select(func.count())
+                        .select_from(RawEventRecord)
+                        .where(RawEventRecord.source.in_(_SURFACE_SOURCES))
                     )
                 ).scalar_one()
             )
