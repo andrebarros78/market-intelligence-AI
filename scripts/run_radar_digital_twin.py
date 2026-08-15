@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 
+from market_intelligence.core.event_loop import psycopg_compatible_loop
 from market_intelligence.digital_twin import run_radar_v1_digital_twin
 
 
@@ -17,7 +18,8 @@ async def _run() -> int:
 
 
 def main() -> int:
-    return asyncio.run(_run())
+    with asyncio.Runner(loop_factory=psycopg_compatible_loop) as runner:
+        return runner.run(_run())
 
 
 if __name__ == "__main__":
