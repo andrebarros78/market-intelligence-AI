@@ -24,6 +24,7 @@ from market_intelligence.workflows.activities import (
     RadarActivities,
 )
 from market_intelligence.workflows.investigation_activities import InvestigationActivities
+from market_intelligence.workflows.learning_activities import SovereignLearningActivities
 from market_intelligence.workflows.oauth_temporal_workflow import SyntheticOAuthRefreshWorkflow
 from market_intelligence.workflows.temporal_workflow import MarketIntelligenceIngestionWorkflow
 
@@ -51,6 +52,7 @@ def build_temporal_worker(
         channel_sessions=sessions,
     )
     investigation = InvestigationActivities(sessions)
+    sovereign_learning = SovereignLearningActivities(sessions)
     workflows: list[type] = [MarketIntelligenceIngestionWorkflow]
     activities: list = [
         persistence.persist_channel_event,
@@ -60,6 +62,7 @@ def build_temporal_worker(
         marketplace.fetch_resource,
         radar_activities.evaluate,
         investigation.advance,
+        sovereign_learning.process,
     ]
     if oauth_runtime is not None:
         oauth = OAuthActivities(oauth_runtime)

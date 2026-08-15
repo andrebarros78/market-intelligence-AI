@@ -113,6 +113,12 @@ def test_temporal_postgres_pipeline_is_durable_idempotent_and_retries_reads() ->
                     assert result["radar_finding"]["entity_id"] == entity_id
                     assert adapter.attempts == 3
 
+                    learning = result["sovereign_learning"]
+                    assert learning is not None
+                    assert learning["state"] in {"under_investigation", "validated_fact"}
+                    assert learning["marketplace_writes"] == 0
+                    assert learning["watchdogs"]["read_only"] is True
+
                     history = await handle.fetch_history()
                     assert history.events
                     await Replayer(
