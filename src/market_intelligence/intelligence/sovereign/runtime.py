@@ -13,15 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from market_intelligence.intelligence.radar.sovereign_learning import SovereignLearningDecision
 from market_intelligence.intelligence.sovereign.core import SovereignIntelligenceCore
+from market_intelligence.intelligence.sovereign.investigation_bridge import SovereignInvestigationBridge
 from market_intelligence.intelligence.sovereign.models import SignalEnvelope
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
 from market_intelligence.persistence.learning import PostgresLearningRepository
-from market_intelligence.persistence.models import (
-    ChannelEventRecord,
-    InvestigationCaseRecord,
-    RawEventRecord,
-    SnapshotRecord,
-)
+from market_intelligence.persistence.models import ChannelEventRecord, RawEventRecord, SnapshotRecord
 from market_intelligence.persistence.postgresql import database_healthcheck
 from market_intelligence.persistence.sovereign_intelligence import PostgresSovereignIntelligenceRepository
 
@@ -161,6 +157,7 @@ def _surface_signal(row: RawEventRecord) -> SignalEnvelope:
             "resolution_status": payload.get("resolution_status"),
             "capture_modes": list(payload.get("capture_modes") or [])[:32],
             "resource_root": payload.get("resource_root"),
+            "resource_root_hash": payload.get("resource_root_hash"),
             "resource_segments": payload.get("resource_segments"),
             "official_get": official_get,
             "values_persisted": False,
@@ -171,7 +168,7 @@ def _surface_signal(row: RawEventRecord) -> SignalEnvelope:
         provenance = {
             "record": "raw_events",
             "payload_hash": row.payload_hash,
-            "resource": resource,
+            "resource": resource if official_get else None,
             "privacy_mode": "schema_only_no_values",
         }
 
@@ -254,43 +251,6 @@ async def _surface_history(
     return tuple(_surface_signal(item) for item in reversed(rows))
 
 
-async def _investigation_for(
-    sessions: async_sessionmaker[AsyncSession],
-    *,
-    marketplace: str,
-    entity_type: str,
-    entity_id: str,
-) -> dict[str, Any] | None:
-    async with sessions() as session:
-        case = (
-            await session.execute(
-                select(InvestigationCaseRecord)
-                .where(
-                    InvestigationCaseRecord.marketplace == marketplace,
-                    InvestigationCaseRecord.entity_type == entity_type,
-                    InvestigationCaseRecord.entity_id == entity_id,
-                )
-                .order_by(desc(InvestigationCaseRecord.updated_at))
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-    if case is None:
-        return None
-    return {
-        "status_after": case.status,
-        "confidence_after": case.confidence,
-        "observation_count": case.observation_count,
-        "hypotheses": list(case.hypotheses or []),
-        "causal_claim": False,
-        "evidence_summary": {
-            "investigation_case_id": str(case.id),
-            "anomalous_observation_count": case.anomalous_observation_count,
-            "ever_confirmed": case.ever_confirmed,
-            "engine_version": case.engine_version,
-        },
-    }
-
-
 async def _persist_cognitive_report(
     *,
     report,
@@ -312,6 +272,7 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
     engine = create_database_engine(database_url)
     sessions = create_session_factory(engine)
     core = SovereignIntelligenceCore()
+    investigator = SovereignInvestigationBridge(sessions)
     repository = PostgresSovereignIntelligenceRepository(sessions)
     learning_repository = PostgresLearningRepository(sessions)
 
@@ -347,70 +308,78 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
                 )
             ).scalars().all()
 
-        processed = inserted = validated = quarantined = audit_failures = exposure_updates = 0
-        surface_signals_processed = 0
+        counters = {
+            "processed": 0,
+            "inserted": 0,
+            "validated": 0,
+            "quarantined": 0,
+            "audit_failures": 0,
+            "exposure_updates": 0,
+            "surface_processed": 0,
+            "investigations_advanced": 0,
+            "investigation_failures": 0,
+        }
         latest_signal_id: str | None = None
 
-        for row in reversed(snapshots):
-            signal = _snapshot_signal(row)
-            history = await _snapshot_history(sessions, row)
-            investigation = await _investigation_for(
-                sessions,
-                marketplace=row.marketplace,
-                entity_type=row.entity_type,
-                entity_id=row.entity_id,
+        async def process_signal(
+            signal: SignalEnvelope,
+            history: tuple[SignalEnvelope, ...],
+            *,
+            is_surface: bool = False,
+        ) -> None:
+            nonlocal latest_signal_id
+            probe = core.probe.plan(signal, history)
+            correlation = core.correlator.correlate(signal, history)
+            instigated = core.instigator.instigate(signal, probe, correlation)
+            investigation = None
+            try:
+                investigation = await investigator.advance(
+                    signal=signal,
+                    history=history,
+                    hypotheses=(item.statement for item in instigated),
+                )
+                counters["investigations_advanced"] += int(investigation is not None)
+            except Exception:
+                counters["investigation_failures"] += 1
+
+            report = core.process(
+                signal,
+                history=history,
+                investigation=investigation,
             )
-            report = core.process(signal, history=history, investigation=investigation)
-            inserted += int(
+            counters["inserted"] += int(
                 await _persist_cognitive_report(
                     report=report,
                     repository=repository,
                     learning_repository=learning_repository,
                 )
             )
-            processed += 1
+            counters["processed"] += 1
+            counters["surface_processed"] += int(is_surface)
+            counters["exposure_updates"] += len(report.counterintelligence)
+            counters["validated"] += int(report.validation.state.value == "validated")
+            counters["quarantined"] += int(report.validation.state.value == "quarantined")
+            counters["audit_failures"] += int(not report.audit.passed)
             latest_signal_id = signal.signal_id
-            exposure_updates += len(report.counterintelligence)
-            validated += int(report.validation.state.value == "validated")
-            quarantined += int(report.validation.state.value == "quarantined")
-            audit_failures += int(not report.audit.passed)
+
+        for row in reversed(snapshots):
+            await process_signal(
+                _snapshot_signal(row),
+                await _snapshot_history(sessions, row),
+            )
 
         for row in reversed(channels):
-            signal = _channel_signal(row)
-            history = await _channel_history(sessions, row)
-            report = core.process(signal, history=history)
-            inserted += int(
-                await _persist_cognitive_report(
-                    report=report,
-                    repository=repository,
-                    learning_repository=learning_repository,
-                )
+            await process_signal(
+                _channel_signal(row),
+                await _channel_history(sessions, row),
             )
-            processed += 1
-            latest_signal_id = signal.signal_id
-            exposure_updates += len(report.counterintelligence)
-            validated += int(report.validation.state.value == "validated")
-            quarantined += int(report.validation.state.value == "quarantined")
-            audit_failures += int(not report.audit.passed)
 
         for row in reversed(surfaces):
-            signal = _surface_signal(row)
-            history = await _surface_history(sessions, row)
-            report = core.process(signal, history=history)
-            inserted += int(
-                await _persist_cognitive_report(
-                    report=report,
-                    repository=repository,
-                    learning_repository=learning_repository,
-                )
+            await process_signal(
+                _surface_signal(row),
+                await _surface_history(sessions, row),
+                is_surface=True,
             )
-            processed += 1
-            surface_signals_processed += 1
-            latest_signal_id = signal.signal_id
-            exposure_updates += len(report.counterintelligence)
-            validated += int(report.validation.state.value == "validated")
-            quarantined += int(report.validation.state.value == "quarantined")
-            audit_failures += int(not report.audit.passed)
 
         await repository.save_checkpoint(
             mission_id=MISSION_ID,
@@ -418,7 +387,7 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
                 "latest_signal_id": latest_signal_id,
                 "completed_at": datetime.now(UTC).isoformat(),
             },
-            processed_count=processed,
+            processed_count=counters["processed"],
             marketplace_writes=0,
         )
 
@@ -432,6 +401,9 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
             learning_total = int(
                 (await session.execute(text("SELECT count(*) FROM learning_episodes"))).scalar_one()
             )
+            investigation_total = int(
+                (await session.execute(text("SELECT count(*) FROM investigation_cases"))).scalar_one()
+            )
             surface_total = int(
                 (
                     await session.execute(
@@ -442,23 +414,32 @@ async def run_cycle(database_url: str, *, max_records: int = 32) -> dict[str, An
                 ).scalar_one()
             )
 
+        core_health = (
+            "PASS"
+            if counters["investigation_failures"] == 0 and counters["audit_failures"] == 0
+            else "DEGRADED"
+        )
         return {
             "timestamp": datetime.now(UTC).isoformat(),
             "core_active": True,
-            "core_health": "PASS",
+            "core_health": core_health,
             "core_version": core.version,
             "radar_subsystem": True,
-            "processed_this_cycle": processed,
-            "surface_signals_processed_this_cycle": surface_signals_processed,
+            "investigator": "progressive-investigation@1.0.0",
+            "processed_this_cycle": counters["processed"],
+            "surface_signals_processed_this_cycle": counters["surface_processed"],
             "surface_observations_total": surface_total,
-            "new_intelligence_records": inserted,
+            "investigations_advanced_this_cycle": counters["investigations_advanced"],
+            "investigation_failures": counters["investigation_failures"],
+            "investigation_cases_total": investigation_total,
+            "new_intelligence_records": counters["inserted"],
             "intelligence_records_total": intelligence_total,
             "exposure_map_records_total": exposure_total,
             "learning_episodes_total": learning_total,
-            "validated_this_cycle": validated,
-            "quarantined_this_cycle": quarantined,
-            "cognitive_audit_failures": audit_failures,
-            "exposure_assessments_this_cycle": exposure_updates,
+            "validated_this_cycle": counters["validated"],
+            "quarantined_this_cycle": counters["quarantined"],
+            "cognitive_audit_failures": counters["audit_failures"],
+            "exposure_assessments_this_cycle": counters["exposure_updates"],
             "marketplace_writes": 0,
             "permanent_read_only": True,
             "action_gateway_required_for_external_actions": True,
@@ -491,7 +472,9 @@ async def run_forever(
         try:
             status = await run_cycle(database_url, max_records=max_records)
             status["lifecycle"] = "always_on"
-            status["unit_state"] = "ACTIVE"
+            status["unit_state"] = (
+                "ACTIVE" if status["core_health"] == "PASS" else "DEGRADED_RETRYING"
+            )
             _write_status(status_path, status)
         except asyncio.CancelledError:
             raise
