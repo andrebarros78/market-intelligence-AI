@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Float, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, Float, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from market_intelligence.persistence.models import Base, JsonType
@@ -12,6 +12,7 @@ from market_intelligence.persistence.models import Base, JsonType
 class SovereignIntelligenceRecord(Base):
     __tablename__ = "sovereign_intelligence"
     __table_args__ = (
+        CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_sovereign_intelligence_confidence"),
         UniqueConstraint("dedupe_key", name="uq_sovereign_intelligence_dedupe_key"),
         Index(
             "ix_sovereign_intelligence_entity_observed",
@@ -81,6 +82,9 @@ class CognitiveAuditRecord(Base):
 
 class SovereignCoreCheckpointRecord(Base):
     __tablename__ = "sovereign_core_checkpoints"
+    __table_args__ = (
+        CheckConstraint("marketplace_writes = 0", name="ck_sovereign_core_checkpoint_no_writes"),
+    )
 
     mission_id: Mapped[str] = mapped_column(String(160), primary_key=True)
     cursor_json: Mapped[dict] = mapped_column(JsonType, nullable=False, default=dict)
