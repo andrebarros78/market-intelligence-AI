@@ -160,9 +160,9 @@ class MercadoLivreFullReadCollector:
             questions_seen = 0
             try:
                 questions = await adapter.read_questions_search(account_id, limit=50)
-                safe_questions = safe_questions(questions.payload)
-                questions_seen = len(safe_questions.get("questions") or [])
-                channel_count += int((await self._persist_result(result=questions, event_type="questions_search", payload=safe_questions))[0])
+                safe_questions_payload = safe_questions(questions.payload)
+                questions_seen = len(safe_questions_payload.get("questions") or [])
+                channel_count += int((await self._persist_result(result=questions, event_type="questions_search", payload=safe_questions_payload))[0])
             except MercadoLivreReadError as exc:
                 errors.append(f"questions:{exc.status_code or exc.code}")
 
