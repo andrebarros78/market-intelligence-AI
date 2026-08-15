@@ -24,23 +24,30 @@ from market_intelligence.sensors.bus import UniversalSensorBus
 from market_intelligence.sensors.models import SensorSignal, SensorSignalKind
 
 
-# Generic surface probing deliberately excludes messages, orders, payments and other
-# resources likely to carry buyer PII. Those resources belong to dedicated minimizers.
-_DIRECT_SAFE_PREFIXES: dict[str, tuple[str, ...]] = {
-    "items": ("/items/",),
-    "price_suggestion": ("/suggestions/items/",),
-    "catalog_item_competition_status": ("/items/",),
-    "catalog_suggestions": ("/catalog_suggestions/",),
-    "public_offers": ("/seller-promotions/offers/",),
-    "public_candidates": ("/seller-promotions/candidates/",),
-    "stock-location": ("/user-products/",),
-    "stock_locations": ("/user-products/",),
-    "user_products_families": ("/user-products/",),
-    "user-products-families": ("/user-products/",),
-    "fbm_stock_operations": ("/stock/fulfillment/operations/",),
-    "flex-handshakes": ("/flex/sites/",),
+_IDENTIFIER = r"[A-Za-z0-9_-]{1,256}"
+_SITE_ID = r"[A-Z0-9_-]{2,16}"
+_SAFE_RESOURCE_PATTERNS: dict[str, re.Pattern[str]] = {
+    "items": re.compile(rf"^/items/{_IDENTIFIER}$"),
+    "price_suggestion": re.compile(rf"^/suggestions/items/{_IDENTIFIER}/details$"),
+    "catalog_item_competition_status": re.compile(rf"^/items/{_IDENTIFIER}/price_to_win$"),
+    "catalog_suggestions": re.compile(rf"^/catalog_suggestions/{_IDENTIFIER}$"),
+    "public_offers": re.compile(rf"^/seller-promotions/offers/{_IDENTIFIER}$"),
+    "public_candidates": re.compile(rf"^/seller-promotions/candidates/{_IDENTIFIER}$"),
+    "stock-location": re.compile(rf"^/user-products/{_IDENTIFIER}/stock$"),
+    "stock_locations": re.compile(rf"^/user-products/{_IDENTIFIER}/stock$"),
+    "user-products-families": re.compile(
+        rf"^/sites/{_SITE_ID}/user-products-families/{_IDENTIFIER}$"
+    ),
+    "user_products_families": re.compile(
+        rf"^/sites/{_SITE_ID}/user-products-families/{_IDENTIFIER}$"
+    ),
+    "fbm_stock_operations": re.compile(rf"^/stock/fulfillment/operations/{_IDENTIFIER}$"),
+    "flex-handshakes": re.compile(
+        rf"^/flex/sites/{_SITE_ID}/shipments/{_IDENTIFIER}/assignment/v1$"
+    ),
 }
-_ITEMS_RESOURCE = re.compile(r"^/items/([A-Za-z0-9_-]{1,256})$")
+_ITEMS_RESOURCE = re.compile(rf"^/items/({_IDENTIFIER})$")
+_MAX_SCHEMA_PATHS = 512
 
 
 def _normalize_path(resource: str) -> str:
@@ -68,15 +75,8 @@ def resolve_safe_notification_resource(topic: str, resource: str) -> str | None:
             return None
         return f"/items/{match.group(1)}/prices"
 
-    prefixes = _DIRECT_SAFE_PREFIXES.get(normalized_topic)
-    if not prefixes:
-        return None
-    if not any(path.startswith(prefix) for prefix in prefixes):
-        return None
-
-    if normalized_topic == "catalog_item_competition_status" and not path.endswith("/price_to_win"):
-        return None
-    if normalized_topic in {"stock-location", "stock_locations"} and not path.endswith("/stock"):
+    pattern = _SAFE_RESOURCE_PATTERNS.get(normalized_topic)
+    if pattern is None or pattern.fullmatch(path) is None:
         return None
     return path
 
@@ -90,15 +90,19 @@ def _schema_paths(value: Any, *, prefix: str = "$", depth: int = 0, max_depth: i
             child = value.get(key)
             child_prefix = f"{prefix}.{key}"
             paths.append(f"{child_prefix}:{type(child).__name__}")
+            if len(paths) >= _MAX_SCHEMA_PATHS:
+                break
             paths.extend(_schema_paths(child, prefix=child_prefix, depth=depth + 1, max_depth=max_depth))
-        return tuple(paths)
+            if len(paths) >= _MAX_SCHEMA_PATHS:
+                break
+        return tuple(paths[:_MAX_SCHEMA_PATHS])
     if isinstance(value, list):
         if not value:
             return (f"{prefix}[]:empty",)
         # Shape only. Never persist list values from a generic surface probe.
-        return (f"{prefix}[]:{type(value[0]).__name__}",) + _schema_paths(
-            value[0], prefix=f"{prefix}[]", depth=depth + 1, max_depth=max_depth
-        )
+        return (
+            f"{prefix}[]:{type(value[0]).__name__}",
+        ) + _schema_paths(value[0], prefix=f"{prefix}[]", depth=depth + 1, max_depth=max_depth)
     return ()
 
 
@@ -107,7 +111,7 @@ def schema_only_observation(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "schema_fingerprint": schema_fingerprint(payload),
-        "schema_paths": list(dict.fromkeys(_schema_paths(payload))),
+        "schema_paths": list(dict.fromkeys(_schema_paths(payload)))[:_MAX_SCHEMA_PATHS],
         "top_level_fields": sorted(str(key) for key in payload.keys()),
     }
 
