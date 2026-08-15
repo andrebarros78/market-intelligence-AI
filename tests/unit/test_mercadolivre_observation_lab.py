@@ -56,7 +56,11 @@ def _har() -> dict:
                         "url": "https://evil.example/private?token=steal",
                         "headers": [],
                     },
-                    "response": {"status": 200, "headers": [], "content": {"mimeType": "text/plain", "text": "bad"}},
+                    "response": {
+                        "status": 200,
+                        "headers": [],
+                        "content": {"mimeType": "text/plain", "text": "bad"},
+                    },
                 },
             ]
         }
@@ -81,13 +85,18 @@ def test_har_analysis_keeps_structure_not_secret_or_pii_values() -> None:
         "SESSION=SECRET",
         "seller_id\": 123456789",
         "0.93",
+        "$.access_token:str",
     ):
         assert forbidden not in encoded
 
     assert payload["path_template"] == "/internal/track/{id}"
     assert payload["request_query_keys"] == ["session"]
     assert payload["request_metadata"]["credential_header_present"] is True
-    assert "$.event:str" in payload["request_body_schema"]["json_schema"]["schema_paths"]
+    request_schema = payload["request_body_schema"]["json_schema"]
+    assert "$.event:str" in request_schema["schema_paths"]
+    assert "$.[SECRET_FIELD]:str" in request_schema["schema_paths"]
+    assert request_schema["secret_field_present"] is True
+    assert "[SECRET_FIELD]" in request_schema["top_level_fields"]
     assert "$.decision.score:float" in payload["response_metadata"]["json_schema"]["schema_paths"]
     assert payload["values_persisted"] is False
 
