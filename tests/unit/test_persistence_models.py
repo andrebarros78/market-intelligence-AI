@@ -3,6 +3,7 @@ from sqlalchemy import create_engine, inspect
 from market_intelligence.marketplaces.mercadolivre.oauth import db_models as _oauth_db_models  # noqa: F401
 from market_intelligence.persistence import ai_models as _ai_models  # noqa: F401
 from market_intelligence.persistence import feedback_models as _feedback_models  # noqa: F401
+from market_intelligence.persistence import learning_models as _learning_models  # noqa: F401
 from market_intelligence.persistence.models import Base
 
 
@@ -25,6 +26,9 @@ def test_operational_schema_can_be_materialized_in_memory() -> None:
         "oauth_credentials",
         "oauth_audit",
         "oauth_operations",
+        "learning_episodes",
+        "learning_promotions",
+        "learning_checkpoints",
     }
 
 

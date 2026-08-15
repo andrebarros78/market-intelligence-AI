@@ -56,6 +56,7 @@ def _workflow_payload(entity_id: str, observed_at: datetime, external_id: str) -
     return {
         "marketplace": "mercadolivre",
         "entity_type": "item",
+        "entity_id": entity_id,
         "raw_event": {
             "source": "mercadolivre",
             "event_type": "r118_temporal_proof",

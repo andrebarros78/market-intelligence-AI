@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -15,6 +16,10 @@ from market_intelligence.persistence.models import (
     InvestigationCaseRecord,
     InvestigationEventRecord,
 )
+
+
+def _utc_iso(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat()
 
 
 def investigation_active_key(marketplace: str, entity_type: str, entity_id: str) -> str:
@@ -77,14 +82,14 @@ def _event_result(
         "observation_count": case.observation_count,
         "anomalous_observation_count": case.anomalous_observation_count,
         "ever_confirmed": case.ever_confirmed,
-        "first_observed_at": case.first_observed_at.isoformat(),
-        "last_observed_at": case.last_observed_at.isoformat(),
+        "first_observed_at": _utc_iso(case.first_observed_at),
+        "last_observed_at": _utc_iso(case.last_observed_at),
         "hypotheses": case.hypotheses or [],
         "recommended_action": case.recommended_action,
         "engine_version": case.engine_version,
         "causal_claim": False,
         "step": {
-            "observed_at": event.observed_at.isoformat(),
+            "observed_at": _utc_iso(event.observed_at),
             "finding_hash": event.finding_hash,
             "status_before": event.status_before,
             "status_after": event.status_after,
@@ -123,7 +128,7 @@ def _ignored_out_of_order_event(
         confidence_delta=0.0,
         evidence_summary={
             "ignored_reason": "out_of_order_observation",
-            "case_last_observed_at": case.last_observed_at.isoformat(),
+            "case_last_observed_at": _utc_iso(case.last_observed_at),
             "causal_claim": False,
         },
         hypotheses=case.hypotheses or [],

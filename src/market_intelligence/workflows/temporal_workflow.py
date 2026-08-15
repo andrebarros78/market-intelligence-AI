@@ -15,6 +15,7 @@ from market_intelligence.workflows.names import (
     ACTIVITY_PERSIST_RADAR_ALERT,
     ACTIVITY_PERSIST_RAW_EVENT,
     ACTIVITY_PERSIST_RESOURCE,
+    ACTIVITY_PROCESS_SOVEREIGN_LEARNING,
     WORKFLOW_INGESTION,
 )
 
@@ -49,6 +50,7 @@ class MarketIntelligenceIngestionWorkflow:
             "radar_finding": None,
             "alert_created": False,
             "investigation": None,
+            "sovereign_learning": None,
         }
 
         channel_event = payload.get("channel_event")
@@ -112,8 +114,11 @@ class MarketIntelligenceIngestionWorkflow:
         if radar_observation is not None:
             if not isinstance(radar_observation, dict):
                 raise ApplicationError("radar_observation must be an object", non_retryable=True)
-            if not entity_type:
-                raise ApplicationError("entity_type is required for Radar alert persistence", non_retryable=True)
+            if not entity_type or not entity_id:
+                raise ApplicationError(
+                    "entity_type and entity_id are required for Radar processing",
+                    non_retryable=True,
+                )
             finding = await workflow.execute_activity(
                 ACTIVITY_EVALUATE_RADAR,
                 radar_observation,
@@ -138,7 +143,7 @@ class MarketIntelligenceIngestionWorkflow:
                     retry_policy=_retry_policy(maximum_attempts=5, maximum_interval_seconds=8),
                 )
             )
-            result["investigation"] = await workflow.execute_activity(
+            investigation = await workflow.execute_activity(
                 ACTIVITY_ADVANCE_INVESTIGATION,
                 {
                     "marketplace": marketplace,
@@ -150,5 +155,24 @@ class MarketIntelligenceIngestionWorkflow:
                 schedule_to_close_timeout=timedelta(minutes=2),
                 retry_policy=_retry_policy(maximum_attempts=5, maximum_interval_seconds=8),
             )
+            result["investigation"] = investigation
+
+            if investigation is not None:
+                result["sovereign_learning"] = await workflow.execute_activity(
+                    ACTIVITY_PROCESS_SOVEREIGN_LEARNING,
+                    {
+                        "marketplace": marketplace,
+                        "entity_type": str(entity_type),
+                        "entity_id": str(entity_id),
+                        "finding": finding,
+                        "investigation": investigation,
+                        "official_resource_fetched": bool(result["resource_fetched"]),
+                        "marketplace_read_only": True,
+                        "marketplace_writes": 0,
+                    },
+                    start_to_close_timeout=timedelta(seconds=30),
+                    schedule_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=_retry_policy(maximum_attempts=5, maximum_interval_seconds=8),
+                )
 
         return result
