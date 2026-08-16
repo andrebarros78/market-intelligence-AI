@@ -45,7 +45,9 @@ def _signal_id(*parts: str) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
-def _safe_snapshot_payload(payload: Any) -> dict[str, Any]:
+def _safe_snapshot_payload(
+    payload: Any, *, entity_type: str | None = None, entity_id: str | None = None
+) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
     allowed = {
@@ -57,12 +59,26 @@ def _safe_snapshot_payload(payload: Any) -> dict[str, Any]:
         "listing_type_id",
         "catalog_listing",
         "condition",
+        "total_amount",
+        "paid_amount",
+        "currency_id",
+        "date_created",
+        "date_closed",
+        "current_price",
+        "price_to_win",
+        "visit_share",
+        "consistent",
+        "reason",
     }
     result: dict[str, Any] = {}
     for key in allowed:
         value = payload.get(key)
         if isinstance(value, (str, int, float, bool)) or value is None:
             result[key] = value
+    if entity_type == "visits" and entity_id:
+        visits = payload.get(entity_id)
+        if isinstance(visits, (int, float)):
+            result["visits"] = visits
     return result
 
 
@@ -81,7 +97,9 @@ def _snapshot_signal(row: SnapshotRecord) -> SignalEnvelope:
         kind=f"snapshot_{row.entity_type}",
         source="universal_sensor_snapshot",
         observed_at=row.captured_at,
-        payload=_safe_snapshot_payload(row.payload),
+        payload=_safe_snapshot_payload(
+            row.payload, entity_type=row.entity_type, entity_id=row.entity_id
+        ),
         provenance={
             "record": "snapshots",
             "payload_hash": row.payload_hash,
@@ -117,6 +135,8 @@ def _channel_signal(row: ChannelEventRecord) -> SignalEnvelope:
             "dedupe_key": row.dedupe_key,
             "request_id_present": bool(row.request_id),
             "correlation_id_present": bool(row.correlation_id),
+            "collector_generated_pattern": True,
+            "intelligence_scope": "instrumentation",
         },
         official_resource_fetched=bool(
             row.status_code is not None and 200 <= row.status_code < 300

@@ -5,7 +5,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from market_intelligence.intelligence.sovereign.core import SovereignIntelligenceCore
-from market_intelligence.intelligence.sovereign.models import AutonomyLevel, KnowledgeState, SignalEnvelope
+from market_intelligence.intelligence.sovereign.models import (
+    AutonomyLevel,
+    KnowledgeState,
+    SignalEnvelope,
+)
 
 
 def signal(
@@ -114,3 +118,53 @@ def test_every_action_remains_behind_action_gateway() -> None:
         assert report.action_intent.requires_action_gateway is True
         assert report.action_intent.direct_marketplace_write is False
         assert report.marketplace_writes == 0
+
+
+def test_collector_generated_telemetry_cannot_become_market_fact() -> None:
+    s = signal(
+        signal_id="collector-channel",
+        kind="/visits/items",
+        payload={"status_code": 200, "latency_ms": 180.0, "attempt": 1},
+    ).model_copy(
+        update={
+            "entity_type": "channel_operation",
+            "entity_id": "/visits/items",
+            "source": "universal_sensor_channel",
+            "provenance": {
+                "record": "channel_events",
+                "collector_generated_pattern": True,
+                "intelligence_scope": "instrumentation",
+            },
+        }
+    )
+    report = SovereignIntelligenceCore().process(
+        s,
+        history=(s.model_copy(update={"signal_id": "collector-h1"}),),
+        investigation=confirmed_investigation(),
+    )
+    assert report.intelligence.classification == "collector_telemetry"
+    assert report.intelligence.threat is False
+    assert report.intelligence.opportunity is False
+    assert report.learning["state"] == "rejected"
+    assert report.validation.state is KnowledgeState.REJECTED
+
+
+def test_snapshot_projection_keeps_commercial_values_without_pii() -> None:
+    from market_intelligence.intelligence.sovereign.runtime import _safe_snapshot_payload
+
+    visits = _safe_snapshot_payload({"MLB1": 123}, entity_type="visits", entity_id="MLB1")
+    competition = _safe_snapshot_payload(
+        {"current_price": 100.0, "price_to_win": 98.0, "visit_share": "maximum", "status": "winning"},
+        entity_type="catalog_competition",
+        entity_id="MLB1",
+    )
+    order = _safe_snapshot_payload(
+        {"total_amount": 199.9, "paid_amount": 199.9, "currency_id": "BRL", "status": "paid", "buyer": {"email": "x@example.com"}},
+        entity_type="order",
+        entity_id="1",
+    )
+    assert visits["visits"] == 123
+    assert competition["price_to_win"] == 98.0
+    assert competition["visit_share"] == "maximum"
+    assert order["total_amount"] == 199.9
+    assert "buyer" not in order

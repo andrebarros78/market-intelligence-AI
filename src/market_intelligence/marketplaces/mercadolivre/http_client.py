@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from time import monotonic
-from typing import Any, Mapping
+from typing import Any
 
 import httpx
 from pydantic import SecretStr
@@ -314,22 +315,38 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
         )
 
     async def read_user_items(
-        self, user_id: str, *, status: str = "active", limit: int = 50
+        self,
+        user_id: str,
+        *,
+        status: str = "active",
+        limit: int = 50,
+        offset: int = 0,
     ) -> MercadoLivreReadResult:
         safe_status = self._safe_identifier(status)
         bounded_limit = max(1, min(int(limit), 100))
+        bounded_offset = max(0, int(offset))
         return await self._read(
             f"/users/{self._safe_identifier(user_id)}/items/search",
-            params={"status": safe_status, "limit": str(bounded_limit)},
+            params={
+                "status": safe_status,
+                "limit": str(bounded_limit),
+                "offset": str(bounded_offset),
+            },
         )
 
     async def read_orders_search(
-        self, seller_id: str, *, limit: int = 20
+        self, seller_id: str, *, limit: int = 20, offset: int = 0
     ) -> MercadoLivreReadResult:
         bounded_limit = max(1, min(int(limit), 50))
+        bounded_offset = max(0, int(offset))
         return await self._read(
             "/orders/search",
-            params={"seller": self._safe_identifier(seller_id), "sort": "date_desc", "limit": str(bounded_limit)},
+            params={
+                "seller": self._safe_identifier(seller_id),
+                "sort": "date_desc",
+                "limit": str(bounded_limit),
+                "offset": str(bounded_offset),
+            },
         )
 
     async def read_questions_search(
@@ -366,16 +383,22 @@ class MercadoLivreReadOnlyAdapter(MarketplaceAdapter):
         return (await self.read_visits(item_id)).payload
 
     async def fetch_resource_observed(
-        self, resource: str, *, attempt: int = 1
+        self,
+        resource: str,
+        *,
+        params: Mapping[str, str] | None = None,
+        attempt: int = 1,
     ) -> MarketplaceFetchResult:
-        result = await self._read(resource, attempt=attempt)
+        result = await self._read(resource, params=params, attempt=attempt)
         return MarketplaceFetchResult(
             payload=result.payload,
             channel_event=_channel_event(result.telemetry),
         )
 
-    async def fetch_resource(self, resource: str) -> dict[str, Any]:
-        return (await self.fetch_resource_observed(resource)).payload
+    async def fetch_resource(
+        self, resource: str, *, params: Mapping[str, str] | None = None
+    ) -> dict[str, Any]:
+        return (await self.fetch_resource_observed(resource, params=params)).payload
 
     def normalize_notification(self, payload: dict[str, Any]) -> RawEvent:
         raise NotImplementedError("notification normalization belongs to ingestion")

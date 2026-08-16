@@ -7,9 +7,14 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy import func, select
+
 from market_intelligence.core.event_loop import psycopg_compatible_loop
-from market_intelligence.marketplaces.mercadolivre.full_read_collector import MercadoLivreFullReadCollector
+from market_intelligence.marketplaces.mercadolivre.full_read_collector import (
+    MercadoLivreFullReadCollector,
+)
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
+from market_intelligence.persistence.models import SnapshotRecord
 from market_intelligence.sensors.history import HistoricalMemoryService
 
 
@@ -44,6 +49,15 @@ async def cycle(db: str, max_items: int) -> dict:
             sessions, max_items_per_cycle=max_items
         ).collect_once()
         memory = await HistoricalMemoryService(sessions).summary()
+        async with sessions() as session:
+            snapshot_rows = (
+                await session.execute(
+                    select(SnapshotRecord.entity_type, func.count())
+                    .where(SnapshotRecord.marketplace == "mercadolivre")
+                    .group_by(SnapshotRecord.entity_type)
+                )
+            ).all()
+        snapshot_totals = {str(entity_type): int(count) for entity_type, count in snapshot_rows}
         return {
             "timestamp": datetime.now(UTC).isoformat(),
             "collector_state": "ACTIVE",
@@ -53,9 +67,13 @@ async def cycle(db: str, max_items: int) -> dict:
             "mercadolivre_success": report.success,
             "mercadolivre_items_seen": report.items_seen,
             "mercadolivre_item_snapshots": report.item_snapshots,
+            "mercadolivre_item_snapshots_new_this_cycle": report.item_snapshots,
             "mercadolivre_order_snapshots": report.order_snapshots,
+            "mercadolivre_order_snapshots_new_this_cycle": report.order_snapshots,
+            "mercadolivre_snapshot_totals": snapshot_totals,
             "mercadolivre_questions_seen": report.questions_seen,
             "mercadolivre_claims_seen": report.claims_seen,
+            "mercadolivre_claims_current_open": report.claims_seen,
             "mercadolivre_channel_events_new": report.channel_events,
             "mercadolivre_errors": list(report.errors),
             "sondador_surface_events_considered": report.surface_events_considered,

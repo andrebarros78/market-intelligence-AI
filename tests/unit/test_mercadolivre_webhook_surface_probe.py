@@ -78,3 +78,13 @@ def test_schema_path_collection_is_bounded() -> None:
     payload = {f"field_{index}": {"nested": index} for index in range(2000)}
     observation = schema_only_observation(payload)
     assert len(observation["schema_paths"]) <= 512
+
+
+def test_public_promotion_notifications_require_v2_query_params() -> None:
+    from market_intelligence.marketplaces.mercadolivre.webhook_surface_probe import (
+        notification_query_params,
+    )
+
+    assert notification_query_params("public_offers") == {"app_version": "v2"}
+    assert notification_query_params("public_candidates") == {"app_version": "v2"}
+    assert notification_query_params("items") is None
