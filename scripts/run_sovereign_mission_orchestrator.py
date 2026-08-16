@@ -12,7 +12,11 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
 from market_intelligence.core.event_loop import psycopg_compatible_loop
-from market_intelligence.missions.models import FollowUpCreate, MissionCreate
+from market_intelligence.missions.models import (
+    FollowUpCreate,
+    HumanDomainHypothesisCreate,
+    MissionCreate,
+)
 from market_intelligence.missions.orchestrator import SovereignMissionOrchestrator
 from market_intelligence.missions.persistence import PostgresMissionRepository
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
@@ -136,6 +140,27 @@ def build_app(database_url: str, runtime_root: Path, token_path: Path, step_dela
         if not item: raise HTTPException(status_code=404, detail="inbox_item_not_found")
         return item
 
+    @app.get("/v1/evolution/snapshot", dependencies=[Depends(auth)])
+    async def evolution_snapshot() -> dict[str, Any]:
+        return await orchestrator.evolution.executive_snapshot()
+
+    @app.get("/v1/evolution/report", dependencies=[Depends(auth)])
+    async def evolution_report() -> dict[str, Any]:
+        path = await orchestrator.evolution.write_report()
+        return {"report_path": str(path), "snapshot": await orchestrator.evolution.executive_snapshot(), "marketplace_writes": 0}
+
+    @app.post("/v1/evolution/run", dependencies=[Depends(auth)])
+    async def run_evolution_cycle() -> dict[str, Any]:
+        result = await orchestrator.evolution.run_due(force=True)
+        return result
+
+    @app.post("/v1/evolution/human-hypotheses", dependencies=[Depends(auth)])
+    async def record_human_hypothesis(request: HumanDomainHypothesisCreate) -> dict[str, Any]:
+        return await orchestrator.evolution.record_human_hypothesis(
+            request.statement,
+            request.signal_family,
+            request.confidence_initial,
+        )
     @app.get("/v1/mission-system/health", dependencies=[Depends(auth)])
     async def health() -> dict[str, Any]:
         state = await repo.health(); state.update({"status": "PASS", "orchestrator": "ACTIVE", "version": orchestrator.version, "api_version": "1.1.0", "read_only": True, "marketplace_writes": 0, "pid": os.getpid()}); return state

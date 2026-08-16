@@ -131,3 +131,27 @@ class MissionView(BaseModel):
     source_finding_id: str | None = None
     follow_up_question: str | None = None
     mode: str = "standard"
+
+class HumanDomainHypothesisCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    statement: str = Field(min_length=5, max_length=8000)
+    signal_family: str = Field(min_length=2, max_length=64)
+    confidence_initial: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    @field_validator("statement")
+    @classmethod
+    def reject_secret_material(cls, value: str) -> str:
+        lowered = value.casefold()
+        forbidden = ("bearer ", "access_token=", "refresh_token=", "authorization:", "client_secret=", "password=", "api_key=")
+        if any(marker in lowered for marker in forbidden):
+            raise ValueError("human_hypothesis_contains_secret_material")
+        return value
+
+    @field_validator("signal_family")
+    @classmethod
+    def normalize_signal_family(cls, value: str) -> str:
+        cleaned = value.strip().upper().replace(" ", "_")
+        if not cleaned:
+            raise ValueError("signal_family_empty")
+        return cleaned

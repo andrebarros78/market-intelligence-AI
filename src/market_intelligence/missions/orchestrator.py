@@ -16,6 +16,7 @@ from market_intelligence.intelligence.sovereign.organs import (
     SovereignInstigator,
 )
 from market_intelligence.intelligence.sovereign.runtime import run_cycle as run_sovereign_cycle
+from market_intelligence.missions.evolution import ContinuousEvolutionEngine
 from market_intelligence.missions.models import MissionCreate, MissionOrigin, MissionType
 from market_intelligence.missions.persistence import PostgresMissionRepository
 from market_intelligence.missions.planner import CognitiveMissionPlanner
@@ -43,6 +44,8 @@ class SovereignMissionOrchestrator:
         self.planner = CognitiveMissionPlanner()
         self.instigator = SovereignInstigator()
         self.counterintelligence = SovereignCounterIntelligence()
+        self.evolution = ContinuousEvolutionEngine(repository.sessions, repository, runtime_root)
+        self._next_evolution_at = datetime.now(UTC) + timedelta(seconds=60)
 
     @staticmethod
     def assert_security() -> None:
@@ -56,7 +59,15 @@ class SovereignMissionOrchestrator:
             try:
                 await self.open_autonomous_from_radar()
                 mission = await self.repo.claim_next()
-                if mission: await self.advance(mission)
+                if mission:
+                    await self.advance(mission)
+                else:
+                    now = datetime.now(UTC)
+                    if now >= self._next_evolution_at:
+                        self._next_evolution_at = now + timedelta(seconds=60)
+                        evolution_result = await self.evolution.run_due()
+                        if evolution_result.get("status") == "COMPLETED":
+                            self._next_evolution_at = now + timedelta(seconds=self.evolution.interval_seconds)
             except asyncio.CancelledError:
                 raise
             except Exception:

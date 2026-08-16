@@ -9,6 +9,7 @@ from sqlalchemy import engine_from_config, pool
 from market_intelligence.persistence.models import Base
 from market_intelligence.persistence import ai_models as _ai_models  # noqa: F401
 from market_intelligence.persistence import feedback_models as _feedback_models  # noqa: F401
+from market_intelligence.persistence import evolution_models as _evolution_models  # noqa: F401
 from market_intelligence.persistence import learning_models as _learning_models  # noqa: F401
 from market_intelligence.persistence import mission_models as _mission_models  # noqa: F401
 from market_intelligence.persistence import sovereign_intelligence_models as _sovereign_intelligence_models  # noqa: F401
