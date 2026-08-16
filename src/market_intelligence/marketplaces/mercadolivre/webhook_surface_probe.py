@@ -28,7 +28,6 @@ from market_intelligence.persistence.postgresql import (
 from market_intelligence.sensors.bus import UniversalSensorBus
 from market_intelligence.sensors.models import SensorSignal, SensorSignalKind
 
-
 _IDENTIFIER = r"[A-Za-z0-9_-]{1,256}"
 _SITE_ID = r"[A-Z0-9_-]{2,16}"
 _SAFE_RESOURCE_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -87,6 +86,14 @@ def resolve_safe_notification_resource(topic: str, resource: str) -> str | None:
     return path
 
 
+
+def notification_query_params(topic: str) -> dict[str, str] | None:
+    normalized = topic.strip().lower()
+    if normalized in {"public_offers", "public_candidates"}:
+        return {"app_version": "v2"}
+    return None
+
+
 def _schema_paths(
     value: Any,
     *,
@@ -98,7 +105,7 @@ def _schema_paths(
         return (f"{prefix}:max_depth",)
     if isinstance(value, dict):
         paths: list[str] = []
-        for key in sorted(str(item) for item in value.keys()):
+        for key in sorted(str(item) for item in value):
             child = value.get(key)
             child_prefix = f"{prefix}.{key}"
             paths.append(f"{child_prefix}:{type(child).__name__}")
@@ -135,7 +142,7 @@ def schema_only_observation(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_fingerprint": schema_fingerprint(payload),
         "schema_paths": list(dict.fromkeys(_schema_paths(payload)))[:_MAX_SCHEMA_PATHS],
-        "top_level_fields": sorted(str(key) for key in payload.keys()),
+        "top_level_fields": sorted(str(key) for key in payload),
     }
 
 
@@ -209,6 +216,50 @@ class MercadoLivreWebhookSurfaceProbe:
         self.channel = PostgresChannelEventRepository(sessions)
         self.bus = bus or UniversalSensorBus()
 
+    async def _persist_non_retryable_failure(
+        self,
+        row: RawEventRecord,
+        marker: str,
+        *,
+        resolved: str,
+        exc: MercadoLivreReadError,
+    ) -> bool:
+        observation = unresolved_surface_observation(row.event_type, row.resource or "")
+        observation.update(
+            {
+                "resolution_status": "official_get_rejected_non_retryable",
+                "resolved_resource": resolved,
+                "error_code": exc.code,
+                "status_code": exc.status_code,
+                "retryable": False,
+            }
+        )
+        event = build_raw_event(
+            source=self.source,
+            event_type=f"surface_failed:{row.event_type}",
+            external_id=marker,
+            resource=None,
+            occurred_at=row.occurred_at,
+            received_at=datetime.now(UTC),
+            payload=observation,
+        )
+        inserted = await self.raw.append_if_new(event)
+        if inserted:
+            await self.bus.publish(
+                SensorSignal(
+                    marketplace="mercadolivre",
+                    kind=SensorSignalKind.SCHEMA_CHANGE,
+                    evidence_kind=EvidenceKind.FACT,
+                    source="webhook_surface_non_retryable_failure",
+                    observed_at=row.occurred_at or row.received_at,
+                    declared=False,
+                    payload=observation,
+                    confidence=1.0,
+                    validated=True,
+                )
+            )
+        return inserted
+
     async def _persist_unresolved(self, row: RawEventRecord, marker: str) -> bool:
         observation = unresolved_surface_observation(row.event_type, row.resource or "")
         event = build_raw_event(
@@ -275,9 +326,19 @@ class MercadoLivreWebhookSurfaceProbe:
                     processed.add(marker)
                 continue
             try:
-                result = await self.adapter.fetch_resource_observed(resolved)
-            except MercadoLivreReadError:
+                result = await self.adapter.fetch_resource_observed(
+                    resolved,
+                    params=notification_query_params(row.event_type),
+                )
+            except MercadoLivreReadError as exc:
                 failures += 1
+                if not exc.retryable:
+                    inserted = await self._persist_non_retryable_failure(
+                        row, marker, resolved=resolved, exc=exc
+                    )
+                    new_events += int(inserted)
+                    if inserted:
+                        processed.add(marker)
                 continue
 
             fetched += 1

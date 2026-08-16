@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
-from market_intelligence.intelligence.radar.sovereign_learning import LearningState, SovereignLearningEngine
+from market_intelligence.intelligence.radar.sovereign_learning import (
+    LearningState,
+    SovereignLearningEngine,
+)
 from market_intelligence.intelligence.sovereign.models import (
     CoreCycleReport,
     KnowledgeState,
@@ -21,7 +25,6 @@ from market_intelligence.intelligence.sovereign.organs import (
     SovereignProbe,
     SovereignValidator,
 )
-
 
 _SECRET_KEYS = {
     "access_token",
@@ -104,6 +107,13 @@ class SovereignIntelligenceCore:
         )
 
         learning_input = dict(investigation or {})
+        collector_generated = bool(signal.provenance.get("collector_generated_pattern"))
+        if collector_generated:
+            learning_input["status_after"] = "rejected"
+            learning_input["causal_claim"] = False
+            learning_input.setdefault("evidence_summary", {})[
+                "collector_generated_pattern"
+            ] = True
         if "observation_count" not in learning_input:
             learning_input["observation_count"] = len(correlation.related_signal_ids) + 1
         if "confidence_after" not in learning_input:

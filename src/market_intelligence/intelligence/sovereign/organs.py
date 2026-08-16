@@ -281,6 +281,17 @@ class SovereignIntelligenceEngine:
         hypotheses: tuple[Hypothesis, ...],
     ) -> IntelligenceAssessment:
         kind = _normalized(signal.kind)
+        if signal.provenance.get("collector_generated_pattern"):
+            return IntelligenceAssessment(
+                classification="collector_telemetry",
+                summary=f"Telemetria do coletor para {signal.kind}; nao interpretar como comportamento do marketplace.",
+                severity=Severity.INFO,
+                confidence=max(0.0, min(1.0, signal.confidence)),
+                opportunity=False,
+                threat=False,
+                development_need="exclude_from_market_behavior_learning",
+                evidence=(f"source:{signal.source}", "collector_generated_pattern:true"),
+            )
         platform_output = any(marker in kind for marker in _PLATFORM_OUTPUT_MARKERS)
         negative_marker = any(marker in kind for marker in ("claim", "error", "failure", "loss", "drop"))
         opportunity_marker = any(marker in kind for marker in ("candidate", "offer", "suggestion", "lead"))
