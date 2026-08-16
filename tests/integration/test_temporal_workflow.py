@@ -10,6 +10,7 @@ import pytest
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer
 
+from market_intelligence.core.event_loop import psycopg_compatible_loop
 from market_intelligence.ingestion.events import build_raw_event
 from market_intelligence.intelligence.radar.detectors import KnownRuleDetector, RobustZScoreDetector
 from market_intelligence.intelligence.radar.service import RadarService
@@ -127,4 +128,4 @@ def test_temporal_postgres_pipeline_is_durable_idempotent_and_retries_reads() ->
         finally:
             await database.dispose()
 
-    asyncio.run(scenario())
+    asyncio.run(scenario(), loop_factory=psycopg_compatible_loop)
