@@ -32,7 +32,7 @@ Clock = Callable[[], datetime]
 _AUTH_BASE = "https://auth.mercadolivre.com.br"
 _API_BASE = "https://api.mercadolibre.com"
 _TOKEN_PATH = "/oauth/token"
-_EXPECTED_SCHEMA = "0010_sovereign_missions"
+_EXPECTED_SCHEMA = "0011_cognitive_dialogue"
 
 
 class RealReadOAuthError(RuntimeError):
@@ -89,7 +89,7 @@ class RealReadOAuthSettings:
     expected_schema_revision: str = _EXPECTED_SCHEMA
 
     @classmethod
-    def from_env(cls) -> "RealReadOAuthSettings":
+    def from_env(cls) -> RealReadOAuthSettings:
         return cls(
             app_id=os.getenv("MI_ML_APP_ID", ""),
             client_secret=SecretStr(os.getenv("MI_ML_CLIENT_SECRET", "")),

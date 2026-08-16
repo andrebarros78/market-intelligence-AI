@@ -4,25 +4,31 @@ import asyncio
 import json
 import os
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from market_intelligence.intelligence.radar.alerts import alert_from_finding
 from market_intelligence.intelligence.radar.factory import build_default_radar
 from market_intelligence.intelligence.radar.models import RadarObservation
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
-from market_intelligence.persistence.models import ChannelEventRecord, EvidenceRecord, RawEventRecord, SnapshotRecord
+from market_intelligence.persistence.models import (
+    ChannelEventRecord,
+    EvidenceRecord,
+    RawEventRecord,
+    SnapshotRecord,
+)
 from market_intelligence.persistence.postgresql import PostgresAlertRepository, database_healthcheck
 from market_intelligence.skills import SKILL_REGISTRY, bootstrap_skill_registry
 from market_intelligence.skills.evidence_feed import ValidatedMarketplaceEvidence
 from market_intelligence.skills.executor import execute_validated_evidence
 from market_intelligence.skills.registry import SkillLicenseStatus
 
-EXPECTED_ALEMBIC_HEAD = "0010_sovereign_missions"
+EXPECTED_ALEMBIC_HEAD = "0011_cognitive_dialogue"
 _VALIDATED_SOURCE = "official_api_get_plus_webhook"
 _NUMERIC_METRICS = ("visits", "sold_quantity", "available_quantity", "price")
 

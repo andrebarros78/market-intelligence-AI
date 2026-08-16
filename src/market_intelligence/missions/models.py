@@ -34,6 +34,12 @@ class MissionState(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class FollowUpMode(StrEnum):
+    DEEPEN = "deepen"
+    CHALLENGE = "challenge"
+    CONTINUE = "continue"
+
+
 RUNNING_STATES = {
     MissionState.RECEIVED,
     MissionState.PLANNING,
@@ -44,7 +50,12 @@ RUNNING_STATES = {
     MissionState.REPORTING,
     MissionState.DEGRADED,
 }
-TERMINAL_STATES = {MissionState.COMPLETED, MissionState.BLOCKED, MissionState.FAILED, MissionState.CANCELLED}
+TERMINAL_STATES = {
+    MissionState.COMPLETED,
+    MissionState.BLOCKED,
+    MissionState.FAILED,
+    MissionState.CANCELLED,
+}
 
 
 class MissionCreate(BaseModel):
@@ -59,6 +70,15 @@ class MissionCreate(BaseModel):
     deadline_at: datetime | None = None
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=160)
 
+    @field_validator("objective")
+    @classmethod
+    def reject_secret_material(cls, value: str) -> str:
+        lowered = value.casefold()
+        forbidden = ("bearer ", "access_token=", "refresh_token=", "authorization:", "client_secret=", "password=", "api_key=")
+        if any(marker in lowered for marker in forbidden):
+            raise ValueError("mission_objective_contains_secret_material")
+        return value
+
     @field_validator("marketplace_scope")
     @classmethod
     def normalize_scope(cls, value: tuple[str, ...]) -> tuple[str, ...]:
@@ -66,6 +86,24 @@ class MissionCreate(BaseModel):
         if not cleaned:
             raise ValueError("marketplace_scope_empty")
         return cleaned
+
+
+class FollowUpCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=5, max_length=8000)
+    mode: FollowUpMode = FollowUpMode.DEEPEN
+    source_finding_id: str | None = Field(default=None, max_length=64)
+    priority: int = Field(default=70, ge=0, le=100)
+
+    @field_validator("question")
+    @classmethod
+    def reject_secret_material(cls, value: str) -> str:
+        lowered = value.casefold()
+        forbidden = ("bearer ", "access_token=", "refresh_token=", "authorization:", "client_secret=", "password=", "api_key=")
+        if any(marker in lowered for marker in forbidden):
+            raise ValueError("follow_up_contains_secret_material")
+        return value
 
 
 class MissionView(BaseModel):
@@ -86,3 +124,10 @@ class MissionView(BaseModel):
     error_code: str | None
     retry_count: int
     marketplace_writes: int
+    thread_id: str | None = None
+    root_mission_id: str | None = None
+    parent_mission_id: str | None = None
+    source_report_id: str | None = None
+    source_finding_id: str | None = None
+    follow_up_question: str | None = None
+    mode: str = "standard"

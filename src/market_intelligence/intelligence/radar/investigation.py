@@ -138,6 +138,18 @@ class ProgressiveInvestigationEngine:
                     key = f"context:{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}"
                     candidates[key] = (text, finding.score, ["context:hypothesis"])
 
+        questions = observation.context.get("investigation_questions")
+        if isinstance(questions, list):
+            for question in questions[:16]:
+                text = str(question).strip()
+                if text:
+                    key = f"question:{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}"
+                    candidates[key] = (
+                        f"Pergunta de investigacao: {text}",
+                        max(0.2, finding.score),
+                        ["mission:instigator_feedback"],
+                    )
+
         mappings = {
             "distribution_anomaly_index_v1": (
                 "distribution_exposure_change",

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from market_intelligence.intelligence.sovereign.models import (
     ActionIntent,
@@ -19,7 +20,6 @@ from market_intelligence.intelligence.sovereign.models import (
     SignalEnvelope,
     ValidationVerdict,
 )
-
 
 _PLATFORM_OUTPUT_MARKERS = (
     "price_suggestion",
@@ -194,6 +194,51 @@ class SovereignInstigator:
             )
         return tuple(hypotheses)
 
+    def feedback(
+        self,
+        *,
+        findings: list[dict[str, Any]],
+        correlations: list[Any],
+        hypotheses: list[Any],
+        evidence: list[dict[str, Any]],
+        contradictions: list[Any],
+        counterintelligence_objections: list[str],
+        predictions: list[Any],
+        gaps: list[str],
+    ) -> tuple[str, ...]:
+        """Turn loop returns into new investigation questions.
+
+        This is the feedback path of the existing sovereign Instigator. It emits
+        questions only; the existing ProgressiveInvestigationEngine remains the
+        authoritative investigator.
+        """
+        questions: list[str] = [
+            "O que ainda nao foi explicado pelas evidencias atuais?",
+            "Qual hipotese alternativa permanece plausivel?",
+            "Que evidencia poderia derrubar a conclusao mais forte?",
+            "Existe outra variavel observavel relacionada que ainda nao foi comparada?",
+            "Que evidencia legitima ainda falta para aumentar ou reduzir a confianca?",
+            "Existe algo relevante dentro das superficies autorizadas que ainda nao procuramos?",
+            "Alguma descoberta atual gera uma nova pergunta operacional importante?",
+            "Existe ameaca ou oportunidade que ainda nao foi investigada adequadamente?",
+        ]
+        if contradictions:
+            questions.insert(0, "As contradicoes observadas invalidam total ou parcialmente a conclusao atual?")
+        if gaps:
+            questions.insert(0, "As lacunas de dados ou validacao explicam a incerteza restante?")
+        if correlations:
+            questions.append("A correlacao permanece quando confrontada com outra janela, entidade ou controle observavel?")
+        if hypotheses:
+            questions.append("Qual das hipoteses atuais tem melhor suporte e qual tem o falsificador mais forte?")
+        if predictions:
+            questions.append("As previsoes anteriores foram confirmadas, contrariadas ou continuam sem evidencia posterior suficiente?")
+        if evidence:
+            questions.append("As evidencias principais sao independentes entre si ou repetem a mesma fonte?")
+        if findings:
+            questions.append("Qual achado tem maior impacto potencial e ainda possui explicacao incompleta?")
+        questions.extend(str(item) for item in counterintelligence_objections if str(item).strip())
+        return tuple(dict.fromkeys(questions))[:16]
+
 
 class SovereignExperimenter:
     version = "sovereign-experimenter@1.0.0"
@@ -327,6 +372,31 @@ class SovereignCounterIntelligence:
                 )
             )
         return tuple(assessments)
+
+    def challenge(
+        self,
+        *,
+        findings: list[dict[str, Any]],
+        evidence: list[dict[str, Any]],
+        mode: str = "standard",
+    ) -> tuple[str, ...]:
+        """Attempt to falsify important conclusions without making new truth claims."""
+        questions = [
+            "Existe explicacao alternativa para a conclusao atual?",
+            "Estamos confundindo correlacao com causa?",
+            "O conjunto de dados esta incompleto ou enviesado pela cobertura disponivel?",
+            "Uma mudanca de coleta, schema, canal ou instrumentacao pode explicar o sinal?",
+            "O marketplace observa algum sinal operacional nosso relevante para esta interpretacao?",
+            "Nossa interpretacao pode estar enviesada por selecao, recencia ou confirmacao?",
+            "A conclusao permanece verdadeira quando confrontada com evidencia contraria?",
+        ]
+        if mode == "challenge":
+            questions.insert(0, "Tente derrubar explicitamente a conclusao principal antes de aceita-la.")
+        if any(str(item.get("knowledge_state") or "") == "validated" for item in findings):
+            questions.append("O conhecimento validado continua sustentado por evidencia independente suficiente?")
+        if not evidence:
+            questions.insert(0, "Nao ha evidencia de missao suficiente; a conclusao deve permanecer inconclusiva?")
+        return tuple(dict.fromkeys(questions))
 
 
 class SovereignValidator:
