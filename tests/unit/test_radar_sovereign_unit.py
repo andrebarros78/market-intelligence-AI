@@ -14,4 +14,4 @@ def test_radar_is_sovereign_universal_unit_not_worker() -> None:
 
 
 def test_radar_runtime_uses_current_sovereign_core_schema() -> None:
-    assert EXPECTED_ALEMBIC_HEAD == "0010_sovereign_missions"
+    assert EXPECTED_ALEMBIC_HEAD == "0011_cognitive_dialogue"

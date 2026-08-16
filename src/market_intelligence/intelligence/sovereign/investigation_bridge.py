@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -8,7 +9,6 @@ from market_intelligence.intelligence.radar.factory import build_default_radar
 from market_intelligence.intelligence.radar.models import RadarObservation
 from market_intelligence.intelligence.sovereign.models import SignalEnvelope
 from market_intelligence.persistence.investigations import PostgresInvestigationRepository
-
 
 _SNAPSHOT_NUMERIC_KEYS = (
     "price",
@@ -100,6 +100,7 @@ def build_radar_observation(
     history: Iterable[SignalEnvelope],
     *,
     hypotheses: Iterable[str] = (),
+    questions: Iterable[str] = (),
 ) -> RadarObservation | None:
     metrics = signal_metrics(signal)
     if not metrics:
@@ -125,6 +126,7 @@ def build_radar_observation(
             "signal_source": signal.source,
             "marketplace": signal.marketplace,
             "hypotheses": [text for text in hypotheses if str(text).strip()][:16],
+            "investigation_questions": [text for text in questions if str(text).strip()][:16],
             "causal_claim": False,
         },
     )
@@ -173,8 +175,9 @@ class SovereignInvestigationBridge:
         signal: SignalEnvelope,
         history: Iterable[SignalEnvelope],
         hypotheses: Iterable[str] = (),
+        questions: Iterable[str] = (),
     ) -> dict[str, Any] | None:
-        observation = build_radar_observation(signal, history, hypotheses=hypotheses)
+        observation = build_radar_observation(signal, history, hypotheses=hypotheses, questions=questions)
         if observation is None:
             return None
         finding = self._radar.evaluate(observation)

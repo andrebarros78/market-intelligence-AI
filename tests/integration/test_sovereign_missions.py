@@ -8,7 +8,12 @@ from uuid import uuid4
 import pytest
 
 from market_intelligence.core.contracts import Alert, EntityRef, Evidence, EvidenceLevel, Severity
-from market_intelligence.missions.models import MissionCreate, MissionOrigin, MissionState, MissionType
+from market_intelligence.missions.models import (
+    MissionCreate,
+    MissionOrigin,
+    MissionState,
+    MissionType,
+)
 from market_intelligence.missions.orchestrator import SovereignMissionOrchestrator
 from market_intelligence.missions.persistence import PostgresMissionRepository
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
@@ -61,10 +66,10 @@ def test_mission_protocol_persistence_idempotency_recovery_report_concurrency_an
             entity_id="AUTO-"+uuid4().hex
             alert=Alert(entity=EntityRef(marketplace="mercadolivre",entity_type="item",entity_id=entity_id),observed_change="synthetic sovereign autonomous anomaly",evidence=[Evidence(level=EvidenceLevel.FACT,statement="synthetic controlled radar evidence",source="test:mission-autonomous",observed_at=datetime.now(UTC))],severity=Severity.HIGH,confidence=0.96,detector_version="mission-autonomous-test@1.0.0")
             assert await PostgresAlertRepository(sessions).save_if_new(alert) is True
-            await orchestrator.open_autonomous_from_radar(); await orchestrator.open_autonomous_from_radar()
+            await orchestrator.open_autonomous_from_radar(max_active=1000); await orchestrator.open_autonomous_from_radar(max_active=1000)
             related=Alert(entity=EntityRef(marketplace="mercadolivre",entity_type="item",entity_id=entity_id),observed_change="synthetic related autonomous signal",evidence=[Evidence(level=EvidenceLevel.FACT,statement="second controlled radar evidence",source="test:mission-autonomous",observed_at=datetime.now(UTC))],severity=Severity.HIGH,confidence=0.94,detector_version="mission-autonomous-test@1.0.0")
             assert await PostgresAlertRepository(sessions).save_if_new(related) is True
-            await orchestrator.open_autonomous_from_radar(); await orchestrator.open_autonomous_from_radar()
+            await orchestrator.open_autonomous_from_radar(max_active=1000); await orchestrator.open_autonomous_from_radar(max_active=1000)
             missions=await repo.list(200); matching=[m for m in missions if m["mission_type"]=="AUTONOMOUS" and entity_id in m["objective"]]
             assert len(matching)==1 and matching[0]["origin"]=="RADAR" and matching[0]["marketplace_writes"]==0
         finally:

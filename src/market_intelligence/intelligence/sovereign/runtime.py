@@ -13,16 +13,23 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from market_intelligence.intelligence.radar.sovereign_learning import SovereignLearningDecision
 from market_intelligence.intelligence.sovereign.core import SovereignIntelligenceCore
-from market_intelligence.intelligence.sovereign.investigation_bridge import SovereignInvestigationBridge
+from market_intelligence.intelligence.sovereign.investigation_bridge import (
+    SovereignInvestigationBridge,
+)
 from market_intelligence.intelligence.sovereign.models import SignalEnvelope
 from market_intelligence.persistence.database import create_database_engine, create_session_factory
 from market_intelligence.persistence.learning import PostgresLearningRepository
-from market_intelligence.persistence.models import ChannelEventRecord, RawEventRecord, SnapshotRecord
+from market_intelligence.persistence.models import (
+    ChannelEventRecord,
+    RawEventRecord,
+    SnapshotRecord,
+)
 from market_intelligence.persistence.postgresql import database_healthcheck
-from market_intelligence.persistence.sovereign_intelligence import PostgresSovereignIntelligenceRepository
+from market_intelligence.persistence.sovereign_intelligence import (
+    PostgresSovereignIntelligenceRepository,
+)
 
-
-EXPECTED_ALEMBIC_HEAD = "0010_sovereign_missions"
+EXPECTED_ALEMBIC_HEAD = "0011_cognitive_dialogue"
 MISSION_ID = "sovereign-intelligence-core-runtime"
 _SURFACE_SOURCES = ("mercadolivre_surface_probe", "mercadolivre_observation_lab")
 
