@@ -88,7 +88,7 @@ def test_conversational_intelligence_api_contract(tmp_path, monkeypatch) -> None
         context = client.get("/v1/intelligence/context", headers=headers)
         assert context.status_code == 200 and context.json()["marketplace_writes"] == 0
         assert "missions_in_progress" in context.json()
-        assert context.json()["last_version"]["schema"] == "0012_continuous_evolution"
+        assert context.json()["last_version"]["schema"] == "0013_semantic_prediction"
         brief = client.get("/v1/intelligence/brief", headers=headers)
         unread_brief = client.get("/v1/intelligence/brief/unread", headers=headers)
         assert brief.status_code == 200 and brief.json()["marketplace_actions_executed"] == 0

@@ -29,7 +29,7 @@ from market_intelligence.persistence.sovereign_intelligence import (
     PostgresSovereignIntelligenceRepository,
 )
 
-EXPECTED_ALEMBIC_HEAD = "0012_continuous_evolution"
+EXPECTED_ALEMBIC_HEAD = "0013_semantic_prediction"
 MISSION_ID = "sovereign-intelligence-core-runtime"
 _SURFACE_SOURCES = ("mercadolivre_surface_probe", "mercadolivre_observation_lab")
 

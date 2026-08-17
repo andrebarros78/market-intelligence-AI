@@ -16,6 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from market_intelligence.missions.models import MissionCreate, MissionOrigin, MissionType
 from market_intelligence.missions.persistence import PostgresMissionRepository, stable_hash
+from market_intelligence.missions.prediction_semantics import compare as compare_prediction
+from market_intelligence.missions.prediction_semantics import contract_from_prediction, jsonable
+from market_intelligence.missions.prediction_semantics import observe as observe_prediction
 
 QUESTION_STATES_OPEN = ("OPEN", "REOPENED")
 KNOWLEDGE_REVALIDATION_HOURS = 6
@@ -405,10 +408,12 @@ class ContinuousEvolutionEngine:
             counts={str(r["status"]):int(r["n"]) for r in (await session.execute(text("SELECT status,count(*) n FROM cognitive_questions GROUP BY status"))).mappings().all()}
         return {"inserted":inserted,"open":counts.get("OPEN",0)+counts.get("REOPENED",0),"investigating":counts.get("INVESTIGATING",0),"answered":counts.get("ANSWERED",0),"inconclusive":counts.get("INCONCLUSIVE",0)}
 
-    async def refresh_predictions(self) -> dict[str,int]:
-        now=datetime.now(UTC); inserted=0
+    async def refresh_predictions(self) -> dict[str, int]:
+        now = datetime.now(UTC)
+        inserted = 0
+        not_evaluable = 0
         async with self.sessions() as session:
-            rows=(await session.execute(text("""
+            rows = (await session.execute(text("""
                 SELECT id,entity_type,entity_id,signal_kind,confidence,observed_at,report_json
                 FROM sovereign_intelligence
                 WHERE knowledge_state NOT IN ('rejected','quarantined')
@@ -416,45 +421,106 @@ class ContinuousEvolutionEngine:
                 ORDER BY observed_at DESC LIMIT 1500
             """))).mappings().all()
             for row in rows:
-                report=row["report_json"] if isinstance(row["report_json"],dict) else {}; pred=report.get("prediction") if isinstance(report.get("prediction"),dict) else {}
-                statement=str(pred.get("statement") or "").strip()
-                if not statement: continue
-                conf=max(0.0,min(1.0,float(pred.get("confidence") or row["confidence"] or 0.0)))
-                key=stable_hash({"source":str(row["id"]),"statement":statement})
-                due=row["observed_at"]+timedelta(hours=6)
-                result=await session.execute(text("""
-                    INSERT INTO prediction_evaluations(prediction_id,dedupe_key,source_intelligence_id,statement,target,time_horizon,confidence_before,expected_observation,evaluation_due_at,observed_result,correct_or_incorrect,confidence_after,status,marketplace_writes)
-                    VALUES(:id,:key,:sid,:statement,:target,:horizon,:conf,CAST(:expected AS jsonb),:due,'{}'::jsonb,'PENDING',:conf,'PENDING',0)
+                report = row["report_json"] if isinstance(row["report_json"], dict) else {}
+                pred = report.get("prediction") if isinstance(report.get("prediction"), dict) else {}
+                statement = str(pred.get("statement") or "").strip()
+                if not statement:
+                    continue
+                conf = max(0.0, min(1.0, float(pred.get("confidence") or row["confidence"] or 0.0)))
+                key = stable_hash({"source": str(row["id"]), "statement": statement})
+                due = row["observed_at"] + timedelta(hours=6)
+                contract = contract_from_prediction(pred, entity_id=str(row["entity_id"]), observed_at=row["observed_at"])
+                if contract:
+                    window = dict(contract.get("evaluation_window") or {})
+                    window.setdefault("start_at", row["observed_at"].isoformat())
+                    window.setdefault("end_at", due.isoformat())
+                    contract["evaluation_window"] = window
+                status = "PENDING" if contract else "NOT_EVALUABLE"
+                not_evaluable += int(contract is None)
+                expected = {"entity_type": row["entity_type"], "entity_id": row["entity_id"], "signal_kind": row["signal_kind"], "after": row["observed_at"].isoformat()}
+                if contract:
+                    expected.update(contract)
+                c = contract or {}
+                result = await session.execute(text("""
+                    INSERT INTO prediction_evaluations(
+                        prediction_id,dedupe_key,source_intelligence_id,statement,target,time_horizon,confidence_before,
+                        expected_observation,evaluation_due_at,observed_result,correct_or_incorrect,confidence_after,status,
+                        marketplace_writes,target_entity,target_metric,operator,expected_value,expected_direction,baseline_value,
+                        tolerance,evaluation_window,evidence_source)
+                    VALUES(:id,:key,:sid,:statement,:target,:horizon,:conf,CAST(:expected AS jsonb),:due,'{}'::jsonb,
+                        :result,:conf,:status,0,:target_entity,:target_metric,:operator,CAST(:expected_value AS jsonb),
+                        :expected_direction,CAST(:baseline_value AS jsonb),:tolerance,CAST(:evaluation_window AS jsonb),:evidence_source)
                     ON CONFLICT(dedupe_key) DO NOTHING RETURNING prediction_id
-                """),{"id":uuid4(),"key":key,"sid":row["id"],"statement":statement,"target":f"{row['entity_type']}:{row['entity_id']}:{row['signal_kind']}",
-                       "horizon":str(pred.get("horizon") or "proxima_janela_observacional"),"conf":conf,"expected":json.dumps({"entity_type":row["entity_type"],"entity_id":row["entity_id"],"signal_kind":row["signal_kind"],"after":row["observed_at"].isoformat()}),"due":due})
-                inserted+=int(result.scalar_one_or_none() is not None)
+                """), {
+                    "id": uuid4(), "key": key, "sid": row["id"], "statement": statement,
+                    "target": f"{row['entity_type']}:{row['entity_id']}:{row['signal_kind']}",
+                    "horizon": str(pred.get("horizon") or "proxima_janela_observacional"), "conf": conf,
+                    "expected": json.dumps(expected, default=str), "due": due, "result": status, "status": status,
+                    "target_entity": c.get("target_entity"), "target_metric": c.get("target_metric"), "operator": c.get("operator"),
+                    "expected_value": json.dumps(c.get("expected_value")), "expected_direction": c.get("expected_direction"),
+                    "baseline_value": json.dumps(c.get("baseline_value")), "tolerance": c.get("tolerance"),
+                    "evaluation_window": json.dumps(c.get("evaluation_window")), "evidence_source": c.get("evidence_source"),
+                })
+                inserted += int(result.scalar_one_or_none() is not None)
             await session.commit()
-            total=int((await session.execute(text("SELECT count(*) FROM prediction_evaluations"))).scalar_one())
-        return {"inserted":inserted,"total":total,"generated_at":now.isoformat()}
+            total = int((await session.execute(text("SELECT count(*) FROM prediction_evaluations"))).scalar_one())
+        return {"inserted": inserted, "total": total, "not_evaluable_generated": not_evaluable, "generated_at": now.isoformat()}
 
-    async def evaluate_due_predictions(self) -> dict[str,Any]:
-        now=datetime.now(UTC); evaluated=correct=incorrect=0; errors:list[float]=[]
+    async def evaluate_due_predictions(self) -> dict[str, Any]:
+        now = datetime.now(UTC)
+        evaluated = correct = partial = incorrect = not_evaluable = no_data = 0
+        errors: list[float] = []
         async with self.sessions() as session:
-            due=(await session.execute(text("SELECT * FROM prediction_evaluations WHERE status='PENDING' AND evaluation_due_at<=:now ORDER BY evaluation_due_at LIMIT 500"),{"now":now})).mappings().all()
-            for row in due:
-                expected=row["expected_observation"] if isinstance(row["expected_observation"],dict) else {}; after=_parse_dt(expected.get("after")) or row["created_at"]
-                match=(await session.execute(text("""
-                    SELECT id,observed_at,knowledge_state FROM sovereign_intelligence
-                    WHERE entity_type=:etype AND entity_id=:eid AND signal_kind=:kind AND observed_at>:after
-                      AND COALESCE(report_json#>>'{signal,source}','') <> 'universal_sensor_channel'
-                    ORDER BY observed_at ASC LIMIT 1
-                """),{"etype":expected.get("entity_type"),"eid":expected.get("entity_id"),"kind":expected.get("signal_kind"),"after":after})).mappings().first()
-                outcome=1.0 if match else 0.0; conf=float(row["confidence_before"]); error=abs(conf-outcome); errors.append(error)
-                result="CORRECT" if match else "INCORRECT"; new_conf=min(0.99,conf+0.05*(1-conf)) if match else max(0.05,conf*0.75)
-                observed={"matched":bool(match),"matched_intelligence_id":str(match["id"]) if match else None,"observed_at":match["observed_at"].isoformat() if match else None}
-                await session.execute(text("UPDATE prediction_evaluations SET observed_result=CAST(:obs AS jsonb),correct_or_incorrect=:result,calibration_error=:error,confidence_after=:new,status='EVALUATED',last_evaluated_at=:now WHERE prediction_id=:id"),
-                                      {"obs":json.dumps(observed),"result":result,"error":error,"new":new_conf,"now":now,"id":row["prediction_id"]})
-                evaluated+=1; correct+=int(bool(match)); incorrect+=int(not match)
-                if not match:
-                    await self._upsert_question(f"Por que a previsao falhou: {row['statement']}","prediction_error",evidence=["prediction","observed_result","regime_change_check"],novelty=0.9)
+            legacy = (await session.execute(text("""
+                UPDATE prediction_evaluations
+                SET status='LEGACY_NOT_EVALUABLE', correct_or_incorrect='LEGACY_NOT_EVALUABLE',
+                    calibration_error=NULL, observed_outcome=NULL, last_evaluated_at=COALESCE(last_evaluated_at,:now)
+                WHERE status IN ('PENDING','EVALUATED') AND target_metric IS NULL
+                RETURNING prediction_id
+            """), {"now": now})).scalars().all()
+            not_evaluable += len(legacy)
+            due = (await session.execute(text("SELECT * FROM prediction_evaluations WHERE status='PENDING' AND evaluation_due_at<=:now ORDER BY evaluation_due_at LIMIT 500"), {"now": now})).mappings().all()
+            for raw in due:
+                row = dict(raw)
+                if not row.get("target_metric") or not row.get("operator"):
+                    await session.execute(text("UPDATE prediction_evaluations SET status='NOT_EVALUABLE',correct_or_incorrect='NOT_EVALUABLE',calibration_error=NULL,observed_outcome=NULL,last_evaluated_at=:now WHERE prediction_id=:id"), {"now": now, "id": row["prediction_id"]})
+                    not_evaluable += 1
+                    continue
+                obs = await observe_prediction(session, row)
+                if obs is None:
+                    await session.execute(text("UPDATE prediction_evaluations SET status='EXPIRED_NO_DATA',correct_or_incorrect='EXPIRED_NO_DATA',observed_result=CAST(:obs AS jsonb),observed_value=NULL,observed_outcome=NULL,calibration_error=NULL,last_evaluated_at=:now WHERE prediction_id=:id"), {
+                        "obs": json.dumps({"reason": "no_observation_in_evaluation_window", "target_metric": row["target_metric"], "target_entity": row["target_entity"]}),
+                        "now": now, "id": row["prediction_id"],
+                    })
+                    no_data += 1
+                    continue
+                status, outcome = compare_prediction(operator=str(row["operator"]), observed=obs["value"], expected=row.get("expected_value"), baseline=row.get("baseline_value"), tolerance=float(row.get("tolerance") or 0.0))
+                if outcome is None:
+                    await session.execute(text("UPDATE prediction_evaluations SET status='NOT_EVALUABLE',correct_or_incorrect='NOT_EVALUABLE',observed_result=CAST(:obs AS jsonb),observed_value=CAST(:value AS jsonb),observed_outcome=NULL,calibration_error=NULL,last_evaluated_at=:now WHERE prediction_id=:id"), {
+                        "obs": json.dumps(obs, default=str), "value": json.dumps(jsonable(obs["value"])), "now": now, "id": row["prediction_id"],
+                    })
+                    not_evaluable += 1
+                    continue
+                conf = float(row["confidence_before"])
+                error = abs(conf - outcome)
+                errors.append(error)
+                new_conf = min(0.99, conf + 0.05 * (1 - conf)) if outcome == 1.0 else conf if outcome == 0.5 else max(0.05, conf * 0.75)
+                await session.execute(text("""
+                    UPDATE prediction_evaluations SET status=:status,correct_or_incorrect=:status,
+                        observed_result=CAST(:obs AS jsonb),observed_value=CAST(:value AS jsonb),observed_outcome=:outcome,
+                        calibration_error=:error,confidence_after=:new,last_evaluated_at=:now WHERE prediction_id=:id
+                """), {
+                    "status": status, "obs": json.dumps(obs, default=str), "value": json.dumps(jsonable(obs["value"])),
+                    "outcome": outcome, "error": error, "new": new_conf, "now": now, "id": row["prediction_id"],
+                })
+                evaluated += 1
+                correct += int(status == "EVALUATED_CORRECT")
+                partial += int(status == "EVALUATED_PARTIAL")
+                incorrect += int(status == "EVALUATED_INCORRECT")
+                if status == "EVALUATED_INCORRECT":
+                    await self._upsert_question(f"Por que a previsao falhou: {row['statement']}", "prediction_error", evidence=["semantic_prediction_contract", "observed_result", "regime_change_check"], novelty=0.9)
             await session.commit()
-        return {"evaluated":evaluated,"correct":correct,"incorrect":incorrect,"mean_calibration_error":sum(errors)/len(errors) if errors else 0.0}
+        return {"evaluated": evaluated, "correct": correct, "partial": partial, "incorrect": incorrect, "not_evaluable": not_evaluable, "no_data": no_data, "mean_calibration_error_valid_only": sum(errors) / len(errors) if errors else 0.0}
 
     async def refresh_knowledge_lifecycle(self) -> dict[str,int]:
         now=datetime.now(UTC); due=now+timedelta(hours=KNOWLEDGE_REVALIDATION_HOURS)
@@ -508,34 +574,40 @@ class ContinuousEvolutionEngine:
             total=int((await session.execute(text("SELECT count(*) FROM drift_events WHERE state IN ('DETECTED','INVESTIGATING','CONFIRMED')"))).scalar_one())
         return {"new":detected,"active":total}
 
-    async def research_leading_signals(self) -> dict[str,int]:
+    async def research_leading_signals(self) -> dict[str, Any]:
         async with self.sessions() as session:
             orders=(await session.execute(text("SELECT payload,captured_at FROM snapshots WHERE entity_type='order' ORDER BY captured_at"))).mappings().all()
             signals=(await session.execute(text("SELECT entity_type,entity_id,captured_at,payload FROM snapshots WHERE entity_type IN ('listing','visits','catalog_competition') ORDER BY captured_at"))).mappings().all()
             by_item:dict[str,list[dict[str,Any]]]=defaultdict(list)
-            for s in signals: by_item[str(s["entity_id"])].append(dict(s))
+            for item in signals:
+                by_item[str(item["entity_id"])].append(dict(item))
             stats:dict[tuple[str,str],list[float]]=defaultdict(list)
             order_items=0
             for order in orders:
-                payload=order["payload"] if isinstance(order["payload"],dict) else {}; occurred=_parse_dt(payload.get("date_created")) or order["captured_at"]
+                payload=order["payload"] if isinstance(order["payload"],dict) else {}
+                occurred=_parse_dt(payload.get("date_created")) or order["captured_at"]
                 for oi in payload.get("order_items") or []:
-                    if not isinstance(oi,dict) or not oi.get("item_id"): continue
+                    if not isinstance(oi,dict) or not oi.get("item_id"):
+                        continue
                     item=str(oi["item_id"]); order_items+=1
-                    candidates=[s for s in by_item.get(item,[]) if timedelta(0)<=(occurred-s["captured_at"])<=timedelta(hours=24)]
-                    for s in candidates:
-                        stats[(_family(str(s["entity_type"])),"ORDERS")].append((occurred-s["captured_at"]).total_seconds())
+                    candidates=[x for x in by_item.get(item,[]) if timedelta(0)<=(occurred-x["captured_at"])<=timedelta(hours=24)]
+                    for candidate in candidates:
+                        stats[(_family(str(candidate["entity_type"])),"ORDERS")].append((occurred-candidate["captured_at"]).total_seconds())
             persisted=0
             for (ante,outcome),leads in stats.items():
-                support=len(leads); precision=min(1.0,support/max(1,order_items)); state="CANDIDATE" if support>=3 and precision>=0.05 else "INCONCLUSIVE"; conf=min(0.9,0.3+0.05*min(10,support))
-                key=stable_hash({"ante":ante,"outcome":outcome,"group":"all_items"})
+                support=len(leads); key=stable_hash({"ante":ante,"outcome":outcome,"group":"all_items"})
+                evidence={"order_items":order_items,"observed_lead_samples":support,"causal_claim":False,"confusion_matrix":"NOT_ESTIMABLE","precision":"NOT_ESTIMABLE","recall":"NOT_ESTIMABLE","reason":"negative/control windows are not reliably aligned to event time in current historical snapshots"}
                 await session.execute(text("""
-                    INSERT INTO leading_signal_research(research_id,dedupe_key,antecedent_family,outcome_family,entity_group,lead_time_seconds,support,precision,false_positives,false_negatives,confidence,state,evidence_json)
-                    VALUES(:id,:key,:ante,:outcome,'all_items',:lead,:support,:precision,0,0,:conf,:state,CAST(:evidence AS jsonb))
-                    ON CONFLICT(dedupe_key) DO UPDATE SET lead_time_seconds=EXCLUDED.lead_time_seconds,support=EXCLUDED.support,precision=EXCLUDED.precision,confidence=EXCLUDED.confidence,state=EXCLUDED.state,evidence_json=EXCLUDED.evidence_json,updated_at=now()
-                """),{"id":uuid4(),"key":key,"ante":ante,"outcome":outcome,"lead":median(leads),"support":support,"precision":precision,"conf":conf,"state":state,"evidence":json.dumps({"order_items":order_items,"observed_lead_samples":support,"causal_claim":False})})
+                    INSERT INTO leading_signal_research(research_id,dedupe_key,antecedent_family,outcome_family,entity_group,lead_time_seconds,support,precision,false_positives,false_negatives,true_positives,true_negatives,recall,confidence,state,evidence_json)
+                    VALUES(:id,:key,:ante,:outcome,'all_items',:lead,:support,NULL,NULL,NULL,:tp,NULL,NULL,:conf,'INCONCLUSIVE',CAST(:evidence AS jsonb))
+                    ON CONFLICT(dedupe_key) DO UPDATE SET lead_time_seconds=EXCLUDED.lead_time_seconds,support=EXCLUDED.support,
+                        precision=NULL,false_positives=NULL,false_negatives=NULL,true_positives=EXCLUDED.true_positives,true_negatives=NULL,recall=NULL,
+                        confidence=EXCLUDED.confidence,state='INCONCLUSIVE',evidence_json=EXCLUDED.evidence_json,updated_at=now()
+                """), {"id":uuid4(),"key":key,"ante":ante,"outcome":outcome,"lead":median(leads),"support":support,"tp":support,
+                         "conf":min(0.7,0.25+0.04*min(10,support)),"evidence":json.dumps(evidence)})
                 persisted+=1
             await session.commit()
-        return {"relations":persisted,"order_items_checked":order_items,"candidate_relations":sum(1 for v in stats.values() if len(v)>=3)}
+        return {"relations":persisted,"order_items_checked":order_items,"candidate_relations":0,"confusion_matrix":"INCONCLUSIVE_NOT_ESTIMABLE"}
 
     async def learn_from_rejections(self) -> dict[str,int]:
         inserted=0
@@ -618,18 +690,21 @@ class ContinuousEvolutionEngine:
             quarantined=int((await session.execute(text("SELECT count(*) FROM sovereign_intelligence WHERE knowledge_state='quarantined'"))).scalar_one())
             stale=int((await session.execute(text("SELECT count(*) FROM knowledge_lifecycle WHERE state IN ('AGING','REVALIDATION_REQUIRED')"))).scalar_one())
             prows={str(r["status"]):int(r["n"]) for r in (await session.execute(text("SELECT status,count(*) n FROM prediction_evaluations GROUP BY status"))).mappings().all()}
-            correct=int((await session.execute(text("SELECT count(*) FROM prediction_evaluations WHERE correct_or_incorrect='CORRECT'"))).scalar_one()); incorrect=int((await session.execute(text("SELECT count(*) FROM prediction_evaluations WHERE correct_or_incorrect='INCORRECT'"))).scalar_one())
-            cal=float((await session.execute(text("SELECT coalesce(avg(calibration_error),0) FROM prediction_evaluations WHERE status='EVALUATED'"))).scalar_one())
+            correct=prows.get("EVALUATED_CORRECT",0); partial=prows.get("EVALUATED_PARTIAL",0); incorrect=prows.get("EVALUATED_INCORRECT",0)
+            evaluated=correct+partial+incorrect
+            evaluable=int((await session.execute(text("SELECT count(*) FROM prediction_evaluations WHERE target_metric IS NOT NULL AND operator IS NOT NULL AND status NOT IN ('NOT_EVALUABLE','LEGACY_NOT_EVALUABLE')"))).scalar_one())
+            not_evaluable=prows.get("NOT_EVALUABLE",0)+prows.get("LEGACY_NOT_EVALUABLE",0); no_data=prows.get("EXPIRED_NO_DATA",0)
+            cal=float((await session.execute(text("SELECT coalesce(avg(calibration_error),0) FROM prediction_evaluations WHERE status IN ('EVALUATED_CORRECT','EVALUATED_PARTIAL','EVALUATED_INCORRECT') AND observed_outcome IS NOT NULL"))).scalar_one())
             drift=int((await session.execute(text("SELECT count(*) FROM drift_events WHERE state IN ('DETECTED','INVESTIGATING','CONFIRMED')"))).scalar_one())
             auto=int((await session.execute(text("SELECT count(*) FROM sovereign_missions WHERE mission_type='AUTONOMOUS'"))).scalar_one())
             false_blocked=int((await session.execute(text("SELECT count(*) FROM sovereign_intelligence WHERE report_json->>'collector_generated_pattern'='true'"))).scalar_one())
             human=int((await session.execute(text("SELECT count(*) FROM human_domain_hypotheses"))).scalar_one()); human_valid=int((await session.execute(text("SELECT count(*) FROM human_domain_hypotheses WHERE status='VALIDATED'"))).scalar_one())
             details={"engine":self.version,"false_learning_policy":"collector_generated_pattern_excluded_from_marketplace_knowledge"}
             await session.execute(text("""
-                INSERT INTO evolution_metrics(metric_id,observed_at,total_signals,understood_signal_families,unknown_signal_families,open_questions,answered_questions,validated_knowledge,rejected_knowledge,quarantined_knowledge,stale_knowledge,predictions_made,predictions_evaluated,predictions_correct,predictions_incorrect,calibration_error,regime_changes,autonomous_investigations,false_patterns_blocked,human_hypotheses,human_hypotheses_validated,marketplace_writes,details_json)
-                VALUES(:id,now(),:signals,:understood,:unknown,:open,:answered,:validated,:rejected,:quarantined,:stale,:pmade,:peval,:pcorrect,:pincorrect,:cal,:drift,:auto,:blocked,:human,:humanv,0,CAST(:details AS jsonb))
-            """),{"id":uuid4(),"signals":total_signals,"understood":understood,"unknown":unknown,"open":qrows.get("OPEN",0)+qrows.get("REOPENED",0),"answered":qrows.get("ANSWERED",0),"validated":validated,"rejected":rejected,"quarantined":quarantined,"stale":stale,"pmade":sum(prows.values()),"peval":prows.get("EVALUATED",0),"pcorrect":correct,"pincorrect":incorrect,"cal":cal,"drift":drift,"auto":auto,"blocked":false_blocked,"human":human,"humanv":human_valid,"details":json.dumps(details)}); await session.commit()
-        return {"TOTAL_SIGNALS":total_signals,"UNDERSTOOD_SIGNAL_FAMILIES":understood,"UNKNOWN_SIGNAL_FAMILIES":unknown,"OPEN_QUESTIONS":qrows.get("OPEN",0)+qrows.get("REOPENED",0),"ANSWERED_QUESTIONS":qrows.get("ANSWERED",0),"VALIDATED_KNOWLEDGE":validated,"REJECTED_KNOWLEDGE":rejected,"QUARANTINED_KNOWLEDGE":quarantined,"STALE_KNOWLEDGE":stale,"PREDICTIONS_MADE":sum(prows.values()),"PREDICTIONS_EVALUATED":prows.get("EVALUATED",0),"PREDICTIONS_CORRECT":correct,"PREDICTIONS_INCORRECT":incorrect,"CALIBRATION_ERROR":cal,"REGIME_CHANGES":drift,"AUTONOMOUS_INVESTIGATIONS":auto,"FALSE_PATTERNS_BLOCKED":false_blocked,"HUMAN_HYPOTHESES":human,"HUMAN_HYPOTHESES_VALIDATED":human_valid,"MARKETPLACE_WRITES":0}
+                INSERT INTO evolution_metrics(metric_id,observed_at,total_signals,understood_signal_families,unknown_signal_families,open_questions,answered_questions,validated_knowledge,rejected_knowledge,quarantined_knowledge,stale_knowledge,predictions_made,predictions_evaluated,predictions_correct,predictions_incorrect,calibration_error,regime_changes,autonomous_investigations,false_patterns_blocked,human_hypotheses,human_hypotheses_validated,marketplace_writes,details_json,predictions_evaluable,predictions_partial,predictions_not_evaluable,predictions_no_data)
+                VALUES(:id,now(),:signals,:understood,:unknown,:open,:answered,:validated,:rejected,:quarantined,:stale,:pmade,:peval,:pcorrect,:pincorrect,:cal,:drift,:auto,:blocked,:human,:humanv,0,CAST(:details AS jsonb),:pevaluable,:ppartial,:pnotevaluable,:pnodata)
+            """),{"id":uuid4(),"signals":total_signals,"understood":understood,"unknown":unknown,"open":qrows.get("OPEN",0)+qrows.get("REOPENED",0),"answered":qrows.get("ANSWERED",0),"validated":validated,"rejected":rejected,"quarantined":quarantined,"stale":stale,"pmade":sum(prows.values()),"peval":evaluated,"pcorrect":correct,"pincorrect":incorrect,"cal":cal,"drift":drift,"auto":auto,"blocked":false_blocked,"human":human,"humanv":human_valid,"details":json.dumps(details),"pevaluable":evaluable,"ppartial":partial,"pnotevaluable":not_evaluable,"pnodata":no_data}); await session.commit()
+        return {"TOTAL_SIGNALS":total_signals,"UNDERSTOOD_SIGNAL_FAMILIES":understood,"UNKNOWN_SIGNAL_FAMILIES":unknown,"OPEN_QUESTIONS":qrows.get("OPEN",0)+qrows.get("REOPENED",0),"ANSWERED_QUESTIONS":qrows.get("ANSWERED",0),"VALIDATED_KNOWLEDGE":validated,"REJECTED_KNOWLEDGE":rejected,"QUARANTINED_KNOWLEDGE":quarantined,"STALE_KNOWLEDGE":stale,"PREDICTIONS_MADE":sum(prows.values()),"PREDICTIONS_EVALUABLE":evaluable,"PREDICTIONS_PENDING":prows.get("PENDING",0),"PREDICTIONS_EVALUATED":evaluated,"PREDICTIONS_CORRECT":correct,"PREDICTIONS_PARTIAL":partial,"PREDICTIONS_INCORRECT":incorrect,"PREDICTIONS_NOT_EVALUABLE":not_evaluable,"PREDICTIONS_NO_DATA":no_data,"CALIBRATION_ERROR_VALID_ONLY":cal,"REGIME_CHANGES":drift,"AUTONOMOUS_INVESTIGATIONS":auto,"FALSE_PATTERNS_BLOCKED":false_blocked,"HUMAN_HYPOTHESES":human,"HUMAN_HYPOTHESES_VALIDATED":human_valid,"MARKETPLACE_WRITES":0}
     async def executive_snapshot(self) -> dict[str, Any]:
         async with self.sessions() as session:
             latest_metrics=(await session.execute(text("SELECT * FROM evolution_metrics ORDER BY observed_at DESC LIMIT 1"))).mappings().first()
