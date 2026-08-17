@@ -147,7 +147,7 @@ def test_cognitive_dialogue_lineage_inbox_context_and_objective_direction(tmp_pa
             assert context["health"]["marketplace_writes"] == 0
             assert "missions_in_progress" in context
             assert context["recent_completed_missions"]
-            assert context["last_version"]["schema"] == "0012_continuous_evolution"
+            assert context["last_version"]["schema"] == "0013_semantic_prediction"
             assert context["active_threads"]
             assert context["recommended_questions"]
             assert context["suggested_next_step"]

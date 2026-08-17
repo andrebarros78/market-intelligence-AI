@@ -138,6 +138,15 @@ class Prediction(BaseModel):
     leading_indicators: tuple[str, ...] = ()
     falsifier: str
     state: KnowledgeState = KnowledgeState.HYPOTHESIS
+    target_entity: str | None = None
+    target_metric: str | None = None
+    operator: str | None = None
+    expected_value: Any | None = None
+    expected_direction: str | None = None
+    baseline_value: Any | None = None
+    tolerance: float | None = Field(default=None, ge=0.0)
+    evaluation_window: dict[str, Any] | None = None
+    evidence_source: str | None = None
 
 
 class ActionIntent(BaseModel):

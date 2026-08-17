@@ -79,6 +79,7 @@ def test_continuous_evolution_cycle_feedback_cooldown_and_utf8(tmp_path, monkeyp
     asyncio.run(scenario(), loop_factory=psycopg_compatible_loop)
 
 
+
 def test_continuous_evolution_rejects_marketplace_write_mode(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("MI_READ_ONLY", "false")
     monkeypatch.setenv("MI_ALLOW_MARKETPLACE_WRITES", "false")
