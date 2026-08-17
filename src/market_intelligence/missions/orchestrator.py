@@ -78,6 +78,9 @@ class SovereignMissionOrchestrator:
         self.assert_security(); mission_id = mission["mission_id"]; state = mission["status"]; checkpoint = dict(mission.get("checkpoint") or {})
         checkpoint.update({"last_safe_state": state, "marketplace_writes": 0, "updated_at": datetime.now(UTC).isoformat()})
         try:
+            if state == "DEGRADED":
+                await self.repo.transition(mission_id, state, STATE_NEXT[state], checkpoint)
+                return
             if state == "RECEIVED":
                 checkpoint.update({"protocol": "sovereign-mission@1.1.0", "uses_existing_sovereign_core": True, "cognitive_loop": True, "read_only": True})
             elif state == "PLANNING":
