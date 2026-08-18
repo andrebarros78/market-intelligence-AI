@@ -408,10 +408,10 @@ class ContinuousEvolutionEngine:
             counts={str(r["status"]):int(r["n"]) for r in (await session.execute(text("SELECT status,count(*) n FROM cognitive_questions GROUP BY status"))).mappings().all()}
         return {"inserted":inserted,"open":counts.get("OPEN",0)+counts.get("REOPENED",0),"investigating":counts.get("INVESTIGATING",0),"answered":counts.get("ANSWERED",0),"inconclusive":counts.get("INCONCLUSIVE",0)}
 
-    async def refresh_predictions(self) -> dict[str, int]:
+    async def refresh_predictions(self) -> dict[str, Any]:
         now = datetime.now(UTC)
         inserted = 0
-        not_evaluable = 0
+        invalid_forecasts = 0
         async with self.sessions() as session:
             rows = (await session.execute(text("""
                 SELECT id,entity_type,entity_id,signal_kind,confidence,observed_at,report_json
@@ -423,24 +423,18 @@ class ContinuousEvolutionEngine:
             for row in rows:
                 report = row["report_json"] if isinstance(row["report_json"], dict) else {}
                 pred = report.get("prediction") if isinstance(report.get("prediction"), dict) else {}
+                if pred.get("prediction_type") != "FORECAST":
+                    continue
                 statement = str(pred.get("statement") or "").strip()
-                if not statement:
+                contract = contract_from_prediction(pred, entity_id=str(row["entity_id"]), observed_at=row["observed_at"])
+                if not statement or not contract:
+                    invalid_forecasts += 1
                     continue
                 conf = max(0.0, min(1.0, float(pred.get("confidence") or row["confidence"] or 0.0)))
-                key = stable_hash({"source": str(row["id"]), "statement": statement})
-                due = row["observed_at"] + timedelta(hours=6)
-                contract = contract_from_prediction(pred, entity_id=str(row["entity_id"]), observed_at=row["observed_at"])
-                if contract:
-                    window = dict(contract.get("evaluation_window") or {})
-                    window.setdefault("start_at", row["observed_at"].isoformat())
-                    window.setdefault("end_at", due.isoformat())
-                    contract["evaluation_window"] = window
-                status = "PENDING" if contract else "NOT_EVALUABLE"
-                not_evaluable += int(contract is None)
-                expected = {"entity_type": row["entity_type"], "entity_id": row["entity_id"], "signal_kind": row["signal_kind"], "after": row["observed_at"].isoformat()}
-                if contract:
-                    expected.update(contract)
-                c = contract or {}
+                key = stable_hash({"source": str(row["id"]), "semantic_contract": contract})
+                window = dict(contract["evaluation_window"])
+                due = datetime.fromisoformat(str(window["end_at"]))
+                expected = {"entity_type": row["entity_type"], "entity_id": row["entity_id"], "signal_kind": row["signal_kind"], **contract}
                 result = await session.execute(text("""
                     INSERT INTO prediction_evaluations(
                         prediction_id,dedupe_key,source_intelligence_id,statement,target,time_horizon,confidence_before,
@@ -448,23 +442,32 @@ class ContinuousEvolutionEngine:
                         marketplace_writes,target_entity,target_metric,operator,expected_value,expected_direction,baseline_value,
                         tolerance,evaluation_window,evidence_source)
                     VALUES(:id,:key,:sid,:statement,:target,:horizon,:conf,CAST(:expected AS jsonb),:due,'{}'::jsonb,
-                        :result,:conf,:status,0,:target_entity,:target_metric,:operator,CAST(:expected_value AS jsonb),
+                        'PENDING',:conf,'PENDING',0,:target_entity,:target_metric,:operator,CAST(:expected_value AS jsonb),
                         :expected_direction,CAST(:baseline_value AS jsonb),:tolerance,CAST(:evaluation_window AS jsonb),:evidence_source)
                     ON CONFLICT(dedupe_key) DO NOTHING RETURNING prediction_id
                 """), {
                     "id": uuid4(), "key": key, "sid": row["id"], "statement": statement,
-                    "target": f"{row['entity_type']}:{row['entity_id']}:{row['signal_kind']}",
-                    "horizon": str(pred.get("horizon") or "proxima_janela_observacional"), "conf": conf,
-                    "expected": json.dumps(expected, default=str), "due": due, "result": status, "status": status,
-                    "target_entity": c.get("target_entity"), "target_metric": c.get("target_metric"), "operator": c.get("operator"),
-                    "expected_value": json.dumps(c.get("expected_value")), "expected_direction": c.get("expected_direction"),
-                    "baseline_value": json.dumps(c.get("baseline_value")), "tolerance": c.get("tolerance"),
-                    "evaluation_window": json.dumps(c.get("evaluation_window")), "evidence_source": c.get("evidence_source"),
+                    "target": f"{contract['target_entity']}:{contract['target_metric']}",
+                    "horizon": str(pred.get("horizon") or "prospective"), "conf": conf,
+                    "expected": json.dumps(expected, default=str), "due": due,
+                    "target_entity": contract["target_entity"], "target_metric": contract["target_metric"], "operator": contract["operator"],
+                    "expected_value": json.dumps(contract.get("expected_value")), "expected_direction": contract.get("expected_direction"),
+                    "baseline_value": json.dumps(contract.get("baseline_value")), "tolerance": contract["tolerance"],
+                    "evaluation_window": json.dumps(contract["evaluation_window"]), "evidence_source": contract["evidence_source"],
                 })
                 inserted += int(result.scalar_one_or_none() is not None)
             await session.commit()
             total = int((await session.execute(text("SELECT count(*) FROM prediction_evaluations"))).scalar_one())
-        return {"inserted": inserted, "total": total, "not_evaluable_generated": not_evaluable, "generated_at": now.isoformat()}
+            forecasts_total = int((await session.execute(text("""
+                SELECT count(*) FROM prediction_evaluations p JOIN sovereign_intelligence s ON s.id=p.source_intelligence_id
+                WHERE s.report_json#>>'{prediction,prediction_type}'='FORECAST'
+            """))).scalar_one())
+            abstentions_total = int((await session.execute(text("SELECT count(*) FROM sovereign_intelligence WHERE report_json#>>'{prediction,prediction_type}'='ABSTAIN'"))).scalar_one())
+            new_not_evaluable = int((await session.execute(text("""
+                SELECT count(*) FROM prediction_evaluations p JOIN sovereign_intelligence s ON s.id=p.source_intelligence_id
+                WHERE s.report_json#>>'{prediction,prediction_type}'='FORECAST' AND p.status='NOT_EVALUABLE'
+            """))).scalar_one())
+        return {"inserted": inserted, "total": total, "forecasts_total": forecasts_total, "abstentions_total": abstentions_total, "not_evaluable_new_generation": new_not_evaluable + invalid_forecasts, "generated_at": now.isoformat()}
 
     async def evaluate_due_predictions(self) -> dict[str, Any]:
         now = datetime.now(UTC)
@@ -695,16 +698,24 @@ class ContinuousEvolutionEngine:
             evaluable=int((await session.execute(text("SELECT count(*) FROM prediction_evaluations WHERE target_metric IS NOT NULL AND operator IS NOT NULL AND status NOT IN ('NOT_EVALUABLE','LEGACY_NOT_EVALUABLE')"))).scalar_one())
             not_evaluable=prows.get("NOT_EVALUABLE",0)+prows.get("LEGACY_NOT_EVALUABLE",0); no_data=prows.get("EXPIRED_NO_DATA",0)
             cal=float((await session.execute(text("SELECT coalesce(avg(calibration_error),0) FROM prediction_evaluations WHERE status IN ('EVALUATED_CORRECT','EVALUATED_PARTIAL','EVALUATED_INCORRECT') AND observed_outcome IS NOT NULL"))).scalar_one())
+            frows={str(r["status"]):int(r["n"]) for r in (await session.execute(text("""
+                SELECT p.status,count(*) n FROM prediction_evaluations p JOIN sovereign_intelligence s ON s.id=p.source_intelligence_id
+                WHERE s.report_json#>>'{prediction,prediction_type}'='FORECAST' GROUP BY p.status
+            """))).mappings().all()}
+            forecasts_total=sum(frows.values()); forecasts_correct=frows.get("EVALUATED_CORRECT",0); forecasts_partial=frows.get("EVALUATED_PARTIAL",0); forecasts_incorrect=frows.get("EVALUATED_INCORRECT",0)
+            forecasts_evaluated=forecasts_correct+forecasts_partial+forecasts_incorrect; forecasts_pending=frows.get("PENDING",0); forecasts_no_data=frows.get("EXPIRED_NO_DATA",0)
+            abstentions_total=int((await session.execute(text("SELECT count(*) FROM sovereign_intelligence WHERE report_json#>>'{prediction,prediction_type}'='ABSTAIN'"))).scalar_one())
+            not_evaluable_new=frows.get("NOT_EVALUABLE",0)
             drift=int((await session.execute(text("SELECT count(*) FROM drift_events WHERE state IN ('DETECTED','INVESTIGATING','CONFIRMED')"))).scalar_one())
             auto=int((await session.execute(text("SELECT count(*) FROM sovereign_missions WHERE mission_type='AUTONOMOUS'"))).scalar_one())
             false_blocked=int((await session.execute(text("SELECT count(*) FROM sovereign_intelligence WHERE report_json->>'collector_generated_pattern'='true'"))).scalar_one())
             human=int((await session.execute(text("SELECT count(*) FROM human_domain_hypotheses"))).scalar_one()); human_valid=int((await session.execute(text("SELECT count(*) FROM human_domain_hypotheses WHERE status='VALIDATED'"))).scalar_one())
-            details={"engine":self.version,"false_learning_policy":"collector_generated_pattern_excluded_from_marketplace_knowledge"}
+            details={"engine":self.version,"false_learning_policy":"collector_generated_pattern_excluded_from_marketplace_knowledge","FORECASTS_TOTAL":forecasts_total,"FORECASTS_PENDING":forecasts_pending,"FORECASTS_EVALUATED":forecasts_evaluated,"FORECASTS_CORRECT":forecasts_correct,"FORECASTS_PARTIAL":forecasts_partial,"FORECASTS_INCORRECT":forecasts_incorrect,"FORECASTS_NO_DATA":forecasts_no_data,"ABSTENTIONS_TOTAL":abstentions_total,"NOT_EVALUABLE_NEW_GENERATION":not_evaluable_new}
             await session.execute(text("""
                 INSERT INTO evolution_metrics(metric_id,observed_at,total_signals,understood_signal_families,unknown_signal_families,open_questions,answered_questions,validated_knowledge,rejected_knowledge,quarantined_knowledge,stale_knowledge,predictions_made,predictions_evaluated,predictions_correct,predictions_incorrect,calibration_error,regime_changes,autonomous_investigations,false_patterns_blocked,human_hypotheses,human_hypotheses_validated,marketplace_writes,details_json,predictions_evaluable,predictions_partial,predictions_not_evaluable,predictions_no_data)
                 VALUES(:id,now(),:signals,:understood,:unknown,:open,:answered,:validated,:rejected,:quarantined,:stale,:pmade,:peval,:pcorrect,:pincorrect,:cal,:drift,:auto,:blocked,:human,:humanv,0,CAST(:details AS jsonb),:pevaluable,:ppartial,:pnotevaluable,:pnodata)
             """),{"id":uuid4(),"signals":total_signals,"understood":understood,"unknown":unknown,"open":qrows.get("OPEN",0)+qrows.get("REOPENED",0),"answered":qrows.get("ANSWERED",0),"validated":validated,"rejected":rejected,"quarantined":quarantined,"stale":stale,"pmade":sum(prows.values()),"peval":evaluated,"pcorrect":correct,"pincorrect":incorrect,"cal":cal,"drift":drift,"auto":auto,"blocked":false_blocked,"human":human,"humanv":human_valid,"details":json.dumps(details),"pevaluable":evaluable,"ppartial":partial,"pnotevaluable":not_evaluable,"pnodata":no_data}); await session.commit()
-        return {"TOTAL_SIGNALS":total_signals,"UNDERSTOOD_SIGNAL_FAMILIES":understood,"UNKNOWN_SIGNAL_FAMILIES":unknown,"OPEN_QUESTIONS":qrows.get("OPEN",0)+qrows.get("REOPENED",0),"ANSWERED_QUESTIONS":qrows.get("ANSWERED",0),"VALIDATED_KNOWLEDGE":validated,"REJECTED_KNOWLEDGE":rejected,"QUARANTINED_KNOWLEDGE":quarantined,"STALE_KNOWLEDGE":stale,"PREDICTIONS_MADE":sum(prows.values()),"PREDICTIONS_EVALUABLE":evaluable,"PREDICTIONS_PENDING":prows.get("PENDING",0),"PREDICTIONS_EVALUATED":evaluated,"PREDICTIONS_CORRECT":correct,"PREDICTIONS_PARTIAL":partial,"PREDICTIONS_INCORRECT":incorrect,"PREDICTIONS_NOT_EVALUABLE":not_evaluable,"PREDICTIONS_NO_DATA":no_data,"CALIBRATION_ERROR_VALID_ONLY":cal,"REGIME_CHANGES":drift,"AUTONOMOUS_INVESTIGATIONS":auto,"FALSE_PATTERNS_BLOCKED":false_blocked,"HUMAN_HYPOTHESES":human,"HUMAN_HYPOTHESES_VALIDATED":human_valid,"MARKETPLACE_WRITES":0}
+        return {"TOTAL_SIGNALS":total_signals,"UNDERSTOOD_SIGNAL_FAMILIES":understood,"UNKNOWN_SIGNAL_FAMILIES":unknown,"OPEN_QUESTIONS":qrows.get("OPEN",0)+qrows.get("REOPENED",0),"ANSWERED_QUESTIONS":qrows.get("ANSWERED",0),"VALIDATED_KNOWLEDGE":validated,"REJECTED_KNOWLEDGE":rejected,"QUARANTINED_KNOWLEDGE":quarantined,"STALE_KNOWLEDGE":stale,"PREDICTIONS_MADE":sum(prows.values()),"PREDICTIONS_EVALUABLE":evaluable,"PREDICTIONS_PENDING":prows.get("PENDING",0),"PREDICTIONS_EVALUATED":evaluated,"PREDICTIONS_CORRECT":correct,"PREDICTIONS_PARTIAL":partial,"PREDICTIONS_INCORRECT":incorrect,"PREDICTIONS_NOT_EVALUABLE":not_evaluable,"PREDICTIONS_NO_DATA":no_data,"FORECASTS_TOTAL":forecasts_total,"FORECASTS_PENDING":forecasts_pending,"FORECASTS_EVALUATED":forecasts_evaluated,"FORECASTS_CORRECT":forecasts_correct,"FORECASTS_PARTIAL":forecasts_partial,"FORECASTS_INCORRECT":forecasts_incorrect,"FORECASTS_NO_DATA":forecasts_no_data,"ABSTENTIONS_TOTAL":abstentions_total,"NOT_EVALUABLE_NEW_GENERATION":not_evaluable_new,"CALIBRATION_ERROR_VALID_ONLY":cal,"REGIME_CHANGES":drift,"AUTONOMOUS_INVESTIGATIONS":auto,"FALSE_PATTERNS_BLOCKED":false_blocked,"HUMAN_HYPOTHESES":human,"HUMAN_HYPOTHESES_VALIDATED":human_valid,"MARKETPLACE_WRITES":0}
     async def executive_snapshot(self) -> dict[str, Any]:
         async with self.sessions() as session:
             latest_metrics=(await session.execute(text("SELECT * FROM evolution_metrics ORDER BY observed_at DESC LIMIT 1"))).mappings().first()

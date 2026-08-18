@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, ClassVar
 
 from market_intelligence.intelligence.sovereign.models import (
     ActionIntent,
@@ -478,43 +479,60 @@ class SovereignValidator:
 
 
 class SovereignPredictor:
-    version = "sovereign-predictor@1.0.0"
+    version = "sovereign-predictor@2.0.0"
+    _max_baseline_age = timedelta(minutes=30)
+    _window = timedelta(minutes=15)
+    _metric_policies: ClassVar[dict[str, tuple[tuple[str, float, str], ...]]] = {
+        "visits": (("visits", 1.0, "snapshots:visits"),),
+        "listing": (("available_quantity", 0.0, "snapshots:listing"), ("listing.price", 0.01, "snapshots:listing")),
+        "catalog_competition": (("current_price", 0.01, "snapshots:catalog_competition:current_price"), ("price_to_win", 0.01, "snapshots:catalog_competition:price_to_win")),
+    }
 
-    def predict(
-        self,
-        signal: SignalEnvelope,
-        correlation: CorrelationFinding,
-        validation: ValidationVerdict,
-    ) -> Prediction:
-        kind = _normalized(signal.kind)
-        if validation.state is KnowledgeState.VALIDATED:
-            statement = f"Se o padrao validado de {signal.kind} reaparecer, procurar os mesmos sinais antecedentes e posteriores."
-            confidence = min(0.95, validation.confidence)
-            state = KnowledgeState.TESTED
-        elif validation.state in {KnowledgeState.REJECTED, KnowledgeState.QUARANTINED}:
-            statement = f"Conhecimento {validation.state.value} para {signal.kind}; nao projetar consequencia ate revalidacao."
-            confidence = min(0.20, validation.confidence)
-            state = validation.state
-        elif correlation.related_signal_ids:
-            statement = f"O proximo evento relacionado a {signal.kind} pode repetir o regime observado; confirmar antes de agir."
-            confidence = min(0.75, max(0.35, correlation.strength))
-            state = KnowledgeState.HYPOTHESIS
-        else:
-            statement = f"Ainda nao ha base suficiente para prever consequencia de {signal.kind}; coletar repeticao."
-            confidence = 0.2
-            state = KnowledgeState.HYPOTHESIS
+    @staticmethod
+    def _numeric(value: Any) -> float | None:
+        return None if isinstance(value, bool) or not isinstance(value, (int, float)) else float(value)
 
-        leading = tuple(dict.fromkeys(("repeticao_do_sinal", *correlation.shared_dimensions[:4])))
-        if any(marker in kind for marker in _PLATFORM_OUTPUT_MARKERS):
-            leading = tuple(dict.fromkeys(("mudanca_em_entrada_observavel", "mudanca_em_saida_da_plataforma", *leading)))
-        return Prediction(
-            statement=statement,
-            confidence=confidence,
-            horizon="proxima_janela_observacional",
-            leading_indicators=leading,
-            falsifier="os indicadores antecedentes aparecem sem o resultado previsto em amostra repetida",
-            state=state,
-        )
+    @classmethod
+    def _metric_value(cls, signal: SignalEnvelope, metric: str) -> float | None:
+        return cls._numeric(signal.payload.get("price" if metric == "listing.price" else metric))
+
+    @staticmethod
+    def _leading(correlation: CorrelationFinding) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(("repeticao_do_sinal", *correlation.shared_dimensions[:4])))
+
+    def _abstain(self, signal: SignalEnvelope, correlation: CorrelationFinding, validation: ValidationVerdict, reason: str, *, created_at: datetime) -> Prediction:
+        return Prediction(prediction_type="ABSTAIN", statement=f"ABSTAIN: evidencia insuficiente para forecast prospectivo de {signal.kind}.", confidence=min(0.20, validation.confidence), horizon="none", leading_indicators=self._leading(correlation), falsifier="not_applicable_abstention", state=validation.state, abstention_reason=reason, created_at=created_at)
+
+    def predict(self, signal: SignalEnvelope, correlation: CorrelationFinding, validation: ValidationVerdict, *, history: Iterable[SignalEnvelope] = (), created_at: datetime | None = None) -> Prediction:
+        now = created_at or datetime.now(UTC)
+        if now.tzinfo is None: now = now.replace(tzinfo=UTC)
+        signal_time = signal.observed_at if signal.observed_at.tzinfo else signal.observed_at.replace(tzinfo=UTC)
+        if signal.source != "universal_sensor_snapshot": return self._abstain(signal, correlation, validation, "observer_not_supported", created_at=now)
+        if validation.state is not KnowledgeState.VALIDATED or not validation.evidence_sufficient: return self._abstain(signal, correlation, validation, "insufficient_evidence", created_at=now)
+        if signal_time > now: return self._abstain(signal, correlation, validation, "baseline_from_future_rejected", created_at=now)
+        if now - signal_time > self._max_baseline_age: return self._abstain(signal, correlation, validation, "stale_baseline_not_prospective", created_at=now)
+        history_values = tuple(history)
+        if any((item.observed_at if item.observed_at.tzinfo else item.observed_at.replace(tzinfo=UTC)) >= signal_time for item in history_values): return self._abstain(signal, correlation, validation, "future_history_rejected", created_at=now)
+        policies = self._metric_policies.get(signal.entity_type)
+        if not policies:
+            reason = "observer_not_supported_for_order_count" if signal.entity_type == "order" else "metric_not_supported"
+            return self._abstain(signal, correlation, validation, reason, created_at=now)
+        for metric, tolerance, evidence_source in policies:
+            baseline = self._metric_value(signal, metric)
+            if baseline is None: continue
+            past = [self._metric_value(item, metric) for item in history_values if item.entity_type == signal.entity_type and item.entity_id == signal.entity_id]
+            past = [value for value in past if value is not None]
+            if len(past) < 2: continue
+            p2, p1 = past[-2], past[-1]
+            if p2 < p1 < baseline: operator, direction = "INCREASE", "UP"
+            elif p2 > p1 > baseline: operator, direction = "DECREASE", "DOWN"
+            else: continue
+            window = {"start_at": now.isoformat(), "end_at": (now + self._window).isoformat()}
+            confidence = max(0.50, min(0.85, (validation.confidence + correlation.strength) / 2.0))
+            verb = "aumentar" if operator == "INCREASE" else "diminuir"
+            return Prediction(prediction_type="FORECAST", statement=f"{metric} de {signal.entity_id} deve {verb} a partir do baseline {baseline:g} dentro da janela prospectiva congelada.", confidence=confidence, horizon="15m_prospective", leading_indicators=self._leading(correlation), falsifier=f"observacao oficial de {metric} na janela congelada nao confirma {direction} em relacao ao baseline {baseline:g}", state=KnowledgeState.TESTED, target_entity=signal.entity_id, target_metric=metric, operator=operator, expected_direction=direction, baseline_value=baseline, baseline_source=f"{signal.source}:{signal.entity_type}", baseline_observed_at=signal_time, tolerance=tolerance, evaluation_window=window, evidence_source=evidence_source, created_at=now)
+        has_metric = any(self._metric_value(signal, metric) is not None for metric, _, _ in policies)
+        return self._abstain(signal, correlation, validation, "trend_not_sufficient" if has_metric else "baseline_missing", created_at=now)
 
 
 class SovereignDecisionEngine:
