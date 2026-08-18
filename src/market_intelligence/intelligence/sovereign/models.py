@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -132,21 +132,26 @@ class ValidationVerdict(BaseModel):
 class Prediction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    prediction_type: Literal["FORECAST", "ABSTAIN"] = "ABSTAIN"
     statement: str
     confidence: float = Field(ge=0.0, le=1.0)
     horizon: str
     leading_indicators: tuple[str, ...] = ()
     falsifier: str
     state: KnowledgeState = KnowledgeState.HYPOTHESIS
+    abstention_reason: str | None = None
     target_entity: str | None = None
     target_metric: str | None = None
     operator: str | None = None
     expected_value: Any | None = None
     expected_direction: str | None = None
     baseline_value: Any | None = None
+    baseline_source: str | None = None
+    baseline_observed_at: datetime | None = None
     tolerance: float | None = Field(default=None, ge=0.0)
     evaluation_window: dict[str, Any] | None = None
     evidence_source: str | None = None
+    created_at: datetime | None = None
 
 
 class ActionIntent(BaseModel):

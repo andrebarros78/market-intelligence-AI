@@ -34,27 +34,39 @@ def jsonable(value: Any) -> Any:
 
 
 def contract_from_prediction(prediction: dict[str, Any], *, entity_id: str, observed_at: datetime) -> dict[str, Any] | None:
+    if prediction.get("prediction_type") != "FORECAST":
+        return None
     metric = prediction.get("target_metric") or prediction.get("metric")
     operator = prediction.get("operator")
     baseline = prediction.get("baseline_value")
     expected = prediction.get("expected_value")
-    if not metric or not operator:
+    target_entity = prediction.get("target_entity")
+    falsifier = str(prediction.get("falsifier") or "").strip()
+    evidence_source = str(prediction.get("evidence_source") or "").strip()
+    baseline_source = str(prediction.get("baseline_source") or "").strip()
+    created_at = parse_dt(prediction.get("created_at"))
+    baseline_observed_at = parse_dt(prediction.get("baseline_observed_at"))
+    window = prediction.get("evaluation_window") if isinstance(prediction.get("evaluation_window"), dict) else {}
+    start_at = parse_dt(window.get("start_at")); end_at = parse_dt(window.get("end_at"))
+    if not metric or not operator or not target_entity or not falsifier or not evidence_source or created_at is None:
         return None
     op = str(operator).upper()
-    if op in {"DECREASE", "INCREASE"} and baseline is None:
+    if op in {"DECREASE", "INCREASE"}:
+        if baseline is None or not baseline_source or baseline_observed_at is None: return None
+    elif expected is None:
         return None
-    if op not in {"DECREASE", "INCREASE"} and expected is None:
-        return None
+    if start_at is None or end_at is None or end_at <= start_at: return None
+    if start_at < created_at or (baseline_observed_at is not None and baseline_observed_at > created_at): return None
+    observed = observed_at if observed_at.tzinfo else observed_at.replace(tzinfo=UTC)
+    if observed > created_at: return None
     return {
-        "target_entity": str(prediction.get("target_entity") or entity_id),
-        "target_metric": str(metric),
-        "operator": op,
-        "expected_value": jsonable(expected),
-        "expected_direction": str(prediction.get("expected_direction") or ("DOWN" if op == "DECREASE" else "UP" if op == "INCREASE" else "")) or None,
-        "baseline_value": jsonable(baseline),
+        "prediction_type": "FORECAST", "target_entity": str(target_entity), "target_metric": str(metric), "operator": op,
+        "expected_value": jsonable(expected), "expected_direction": str(prediction.get("expected_direction") or ("DOWN" if op == "DECREASE" else "UP" if op == "INCREASE" else "")) or None,
+        "baseline_value": jsonable(baseline), "baseline_source": baseline_source or None,
+        "baseline_observed_at": baseline_observed_at.isoformat() if baseline_observed_at else None,
         "tolerance": float(prediction.get("tolerance") or 0.0),
-        "evaluation_window": prediction.get("evaluation_window") if isinstance(prediction.get("evaluation_window"), dict) else {"start_at": observed_at.isoformat()},
-        "evidence_source": str(prediction.get("evidence_source") or "official_read_snapshots"),
+        "evaluation_window": {"start_at": start_at.isoformat(), "end_at": end_at.isoformat()},
+        "evidence_source": evidence_source, "falsifier": falsifier, "created_at": created_at.isoformat(),
     }
 
 
